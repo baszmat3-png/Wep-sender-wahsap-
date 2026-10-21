@@ -1,8 +1,12 @@
 const express = require('express'), fs = require('fs'), path = require('path'), crypto = require('crypto');
 const bcrypt = require('bcryptjs'), jwt = require('jsonwebtoken'), QR = require('qrcode'), pino = require('pino');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+let _bz; const baileys = async () => { if (!_bz) { const m = require('@whiskeysockets/baileys'); _bz = { ...m, default: m.default?.default || m.default || m.makeWASocket }; } return _bz; };   // تحميل كسول: فشل المكتبة لا يوقف الخادم
+process.on('uncaughtException', e => console.error('uncaughtException:', e));
+process.on('unhandledRejection', e => console.error('unhandledRejection:', e));
 
-const DIR = process.env.DATA_DIR || __dirname;           // على Render اربطه بـ Persistent Disk
+let DIR = process.env.DATA_DIR || __dirname;           // على Render اربطه بـ Persistent Disk
+try { fs.mkdirSync(DIR, { recursive: true }); fs.accessSync(DIR, fs.constants.W_OK); }
+catch (e) { console.error('DATA_DIR غير قابل للكتابة (' + DIR + ') — سيتم استخدام مجلد المشروع. أضف Disk على Render:', e.message); DIR = __dirname; }
 const DB_FILE = path.join(DIR, 'data.json');
 const SECRET = process.env.JWT_SECRET || 'change-me-in-render-env';
 const TRIAL_DAYS = +process.env.TRIAL_DAYS || 2, TRIAL_MSGS = +process.env.TRIAL_MSGS || 30;
@@ -12,7 +16,7 @@ let db = { users: [], logs: [], templates: [], contacts: [], campaigns: [], requ
   { id: 'pro', name: 'الاحترافية', price: '25$', days: 30, daily: 1500 },
   { id: 'biz', name: 'الأعمال', price: '60$', days: 30, daily: 10000 }] };
 try { db = { ...db, ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) }; } catch {}
-let t; const save = () => { clearTimeout(t); t = setTimeout(() => fs.writeFileSync(DB_FILE, JSON.stringify(db)), 300); };
+let t; const save = () => { clearTimeout(t); t = setTimeout(() => { try { fs.writeFileSync(DB_FILE, JSON.stringify(db)); } catch (e) { console.error('save failed:', e.message); } }, 300); };
 const id = () => crypto.randomBytes(8).toString('hex');
 const newKey = () => 'wps_' + crypto.randomBytes(20).toString('hex');
 const otps = {};          // `${uid}:${phone}` -> {code, exp}
@@ -21,8 +25,11 @@ const sessions = {};      // uid -> {sock,status,qr,phone}
 /* ---------- WhatsApp (Baileys) ---------- */
 async function startWA(uid) {
   const s = (sessions[uid] ||= { status: 'idle', qr: null, sock: null });
-  if (s.sock) return;
+  if (s.sock || s.starting) return;
+  s.starting = true;
+  try {
   const dir = path.join(DIR, 'sessions', uid);
+  const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = await baileys();
   const { state, saveCreds } = await useMultiFileAuthState(dir);
   const { version } = await fetchLatestBaileysVersion();
   const sock = makeWASocket({ version, auth: state, logger: pino({ level: 'silent' }), browser: ['WP Sender', 'Chrome', '1.0'] });
@@ -38,6 +45,7 @@ async function startWA(uid) {
       else setTimeout(() => startWA(uid).catch(() => {}), 3000);
     }
   });
+  } finally { s.starting = false; }
 }
 const jidOf = n => String(n).replace(/\D/g, '') + '@s.whatsapp.net';
 async function sendWA(user, to, text, type = 'api') {
@@ -72,6 +80,7 @@ function checkAccess(u) {
 /* ---------- Express ---------- */
 const app = express();
 app.use(express.json({ limit: '2mb' }));
+app.get('/healthz', (req, res) => res.json({ ok: true, users: db.users.length, dir: DIR }));
 app.use(express.static(path.join(__dirname, 'public')));
 const wrap = f => (req, res) => Promise.resolve(f(req, res)).catch(e => res.status(400).json({ error: e.message }));
 
@@ -185,7 +194,10 @@ app.get(A + '/requests', auth, adm, (req, res) => res.json(db.requests.slice().r
 app.post(A + '/requests/:id/reject', auth, adm, (req, res) => { const r = db.requests.find(r => r.id === req.params.id); if (r) r.status = 'rejected'; save(); res.json({ ok: true }); });
 app.post(A + '/plans', auth, adm, wrap(async (req, res) => { db.plans = (req.body.plans || []).map(p => ({ id: p.id || id(), name: String(p.name), price: String(p.price), days: +p.days || 30, daily: +p.daily || 100 })); save(); res.json(db.plans); }));
 
-app.listen(process.env.PORT || 3000, () => {
+app.use('/api', (req, res) => res.status(404).json({ error: 'المسار غير موجود' }));
+app.use((err, req, res, next) => { console.error(err); res.status(err.status || 500).json({ error: err.status === 400 ? 'بيانات غير صالحة' : 'خطأ في الخادم: ' + err.message }); });
+
+app.listen(process.env.PORT || 3000, '0.0.0.0', () => {
   console.log('Server running');
   db.users.forEach(u => fs.existsSync(path.join(DIR, 'sessions', u.id)) && startWA(u.id).catch(() => {}));
 });
