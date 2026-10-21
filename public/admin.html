@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>لوحة الإدارة — WP Sender</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css"></head><body>
+<aside id="side"></aside>
+<div id="top"><button id="mb" class="btn g s" onclick="side.classList.toggle('open')">☰</button><h2 id="ttl"></h2><button class="btn g s" onclick="dark()">🌙</button></div>
+<div id="main"></div>
+<script src="/common.js"></script>
+<script>
+let PLANS=[],USERS=[];
+const MENU=[['ov','chart','نظرة عامة'],['us','users','المشتركون'],['rq','bell','طلبات الاشتراك'],['pl','card','الباقات والأسعار']];
+const st=u=>{const s=u.sub;return`<span class="badge ${{paid:'',trial:'b',admin:'b',expired:'y',banned:'x'}[s.type]}">${s.name}</span>`};
+const act=f=>async()=>{try{await f()}catch(e){toast(e.message,false)}};
+(async()=>{try{const me=await api('/me');if(me.role!='admin')throw 0}catch{location.href='/';return}
+ side.innerHTML=`<div class="logo"><b>WP</b>ADMIN</div>`+MENU.map(m=>`<a data-v="${m[0]}" onclick="go('${m[0]}')">${ic(m[1])}${m[2]}</a>`).join('')+`<a href="/">${ic('home')}لوحة المستخدم</a>`;
+ PLANS=(await api('/plans')).plans;go('ov')})();
+const V={};
+async function go(v){side.classList.remove('open');document.querySelectorAll('#side a[data-v]').forEach(a=>a.classList.toggle('on',a.dataset.v==v));ttl.textContent=MENU.find(m=>m[0]==v)[2];try{await V[v]()}catch(e){toast(e.message,false)}}
+
+V.ov=async()=>{const o=await api('/admin/overview');const S=[['users','المشتركون',o.users],['check','اشتراكات فعّالة',o.paid],['bolt','في التجربة',o.trial],['lock','منتهية',o.expired],['send','رسائل اليوم',o.msgsToday],['chart','إجمالي الرسائل',o.msgsTotal],['bell','طلبات معلقة',o.pending],['qr','واتساب متصل',o.online]];
+ main.innerHTML=`<div class="grid g4">${S.map(s=>`<div class="card stat"><div class="ic">${ic(s[0])}</div><div><b>${s[2]}</b><span>${s[1]}</span></div></div>`).join('')}</div>`};
+
+V.us=async()=>{USERS=await api('/admin/users');draw('')};
+function draw(q){main.innerHTML=`<div class="card"><input placeholder="بحث بالاسم أو البريد..." value="${q}" oninput="draw(this.value);document.querySelector('input').focus()" style="margin:0"></div><div class="card tw"><table><tr><th>المستخدم</th><th>الباقة</th><th>الاستهلاك</th><th>واتساب</th><th>إجراءات</th></tr>`+USERS.filter(u=>(u.name+u.email).toLowerCase().includes(q.toLowerCase())).map(u=>row([`<b>${u.name}</b><br><small style="color:var(--m)">${u.email}</small>`,st(u)+(u.sub.expires?`<br><small>حتى ${day(u.sub.expires)}</small>`:''),`${u.total} رسالة`,`<span class="badge ${u.wa=='connected'?'':'x'}">${u.wa=='connected'?'متصل':'—'}</span>`,
+ u.role=='admin'?'—':`<button class="btn s" onclick="activate('${u.id}')">تفعيل</button> <button class="btn g s" onclick="uact('${u.id}','trial','تجديد التجربة؟')">تجربة</button> <button class="btn g s" onclick="uact('${u.id}','deactivate','إلغاء الاشتراك؟')">إلغاء</button> <button class="btn g s" onclick="uact('${u.id}','ban')">${u.banned?'فك الحظر':'حظر'}</button> <button class="btn r s" onclick="del('${u.id}')">حذف</button>`])).join('')+`</table></div>`}
+function activate(id){const m=document.createElement('div');m.className='modal';m.innerHTML=`<div class="card"><h3>تفعيل اشتراك</h3><label>الباقة</label><select id="ap">${PLANS.map(p=>`<option value="${p.id}" data-d="${p.days}">${p.name} — ${p.price}</option>`).join('')}</select><label>المدة (أيام)</label><input id="ad" type="number" value="${PLANS[0]?.days||30}"><button class="btn w" id="ak">تفعيل</button><br><br><button class="btn g w" onclick="this.closest('.modal').remove()">إلغاء</button></div>`;document.body.appendChild(m);
+ ap.onchange=()=>ad.value=ap.selectedOptions[0].dataset.d;
+ ak.onclick=act(async()=>{await api(`/admin/users/${id}/activate`,'POST',{planId:ap.value,days:+ad.value});m.remove();toast('تم التفعيل ✓');go('us')})}
+const uact=(id,a,c)=>(!c||confirm(c))&&act(async()=>{await api(`/admin/users/${id}/${a}`,'POST',{});toast('تم ✓');go('us')})();
+const del=id=>confirm('حذف المستخدم نهائياً؟')&&act(async()=>{await api('/admin/users/'+id,'DELETE');go('us')})();
+
+V.rq=async()=>{const l=await api('/admin/requests'),us=await api('/admin/users'),pn=id=>PLANS.find(p=>p.id==id)?.name||id;
+ main.innerHTML=`<div class="card tw"><table><tr><th>المستخدم</th><th>الباقة</th><th>ملاحظة</th><th>التاريخ</th><th>الحالة</th><th></th></tr>${l.map(r=>row([`${r.name}<br><small>${r.email}</small>`,pn(r.planId),r.note,fmt(r.at),`<span class="badge ${{pending:'y',done:'',rejected:'x'}[r.status]}">${{pending:'معلق',done:'مفعّل',rejected:'مرفوض'}[r.status]}</span>`,r.status=='pending'?`<button class="btn s" onclick="act(async()=>{await api('/admin/users/${r.uid}/activate','POST',{planId:'${r.planId}'});toast('تم التفعيل ✓');go('rq')})()">تفعيل</button> <button class="btn g s" onclick="act(async()=>{await api('/admin/requests/${r.id}/reject','POST',{});go('rq')})()">رفض</button>`:''])).join('')||'<tr><td>لا توجد طلبات</td></tr>'}</table></div>`};
+
+V.pl=()=>{main.innerHTML=`<div class="card"><h3>الباقات (تظهر في صفحة الأسعار)</h3><div id="pr"></div><button class="btn g s" onclick="PLANS.push({id:'p'+Date.now(),name:'باقة جديدة',price:'0$',days:30,daily:100});V.pl()">+ إضافة باقة</button> <button class="btn" onclick="savePl()">حفظ التغييرات</button></div>`;
+ pr.innerHTML=PLANS.map((p,i)=>`<div class="grid g4" style="align-items:end"><div><label>الاسم</label><input data-k="name" value="${p.name}"></div><div><label>السعر</label><input data-k="price" value="${p.price}"></div><div><label>المدة (يوم)</label><input data-k="days" type="number" value="${p.days}"></div><div><label>رسائل/يوم</label><input data-k="daily" type="number" value="${p.daily}"></div><div><button class="btn r s" style="margin-bottom:14px" onclick="PLANS.splice(${i},1);V.pl()">حذف</button></div></div>`).join('')};
+async function savePl(){const rows=[...document.querySelectorAll('#pr .grid')];PLANS=rows.map((r,i)=>{const o={id:PLANS[i].id};r.querySelectorAll('input').forEach(x=>o[x.dataset.k]=x.value);return o});PLANS=await api('/admin/plans','POST',{plans:PLANS});toast('تم الحفظ ✓')}
+</script></body></html>

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WP Sender — منصة الربط البرمجي لواتساب</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head><body>
+
+<!-- ===== الصفحة الرئيسية ===== -->
+<div id="land">
+ <header class="nav"><div class="logo"><b>WP</b>SENDER</div>
+  <nav><a href="#f">المميزات</a><a href="#h">كيف يعمل</a><a href="#p">الأسعار</a></nav>
+  <div class="a"><button class="btn o s" onclick="openAuth('l')">دخول</button><button class="btn s" onclick="openAuth('r')">ابدأ مجاناً</button></div></header>
+ <section class="hero"><div>
+  <span class="pill">🎁 تجربة مجانية <span id="tdays">2</span> أيام • <span id="tmsgs">30</span> رسالة</span>
+  <h1>اربط <em>واتساب</em> بنظامك عبر API في دقائق</h1>
+  <p>أرسل رموز التحقق OTP والإشعارات والحملات الجماعية من موقعك أو تطبيقك بسطر كود واحد. بدون بطاقة بنكية.</p>
+  <p style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" onclick="openAuth('r')">ابدأ التجربة المجانية ←</button><a href="#p" class="btn g">عرض الباقات</a></p></div>
+  <div><code class="c" style="font-size:12.5px;box-shadow:0 20px 50px rgba(0,0,0,.25)">POST /api/otp/send
+X-API-Key: wps_7b5db2a8...
+
+{
+  "to": "+201234567890"
+}
+
+// ✓ {"success": true,
+//    "expires_in": 300}</code></div>
+ </section>
+ <section class="sec" id="f"><h2>كل ما تحتاجه في منصة واحدة</h2><p>أدوات احترافية للمطورين والشركات</p>
+  <div class="grid g3" id="feats"></div></section>
+ <section class="sec" id="h"><h2>ابدأ في 3 خطوات</h2><p>من التسجيل إلى أول رسالة في أقل من دقيقتين</p>
+  <div class="grid g3"><div class="card ft"><div class="ic">1</div><h4>أنشئ حسابك</h4><p>سجّل مجاناً واحصل على مفتاح API فوراً.</p></div>
+  <div class="card ft"><div class="ic">2</div><h4>امسح رمز QR</h4><p>اربط رقم واتساب الخاص بك من الأجهزة المرتبطة.</p></div>
+  <div class="card ft"><div class="ic">3</div><h4>أرسل برمجياً</h4><p>استخدم الكود الجاهز بـ Node وPython وPHP وcURL.</p></div></div></section>
+ <section class="sec" id="p"><h2>باقات تناسب الجميع</h2><p>ابدأ بالتجربة المجانية ثم اختر الباقة المناسبة</p><div class="grid g3" id="plans"></div></section>
+ <footer>© WP Sender — جميع الحقوق محفوظة</footer>
+</div>
+
+<!-- ===== نافذة الدخول ===== -->
+<div id="am" class="modal hide" onclick="if(event.target==this)this.classList.add('hide')"><div class="card">
+ <div class="logo" style="justify-content:center;margin-bottom:14px"><b>WP</b>SENDER</div>
+ <div class="tabs"><button id="tl" class="btn s" style="flex:1" onclick="openAuth('l')">تسجيل الدخول</button><button id="tr" class="btn s o" style="flex:1" onclick="openAuth('r')">إنشاء حساب</button></div>
+ <div id="fr" class="hide"><label>الاسم الكامل</label><input id="rn"></div>
+ <label>البريد الإلكتروني</label><input id="em" type="email" dir="ltr">
+ <label>كلمة المرور</label><input id="pw" type="password" dir="ltr" onkeydown="if(event.key=='Enter')authGo()">
+ <button class="btn w" id="gob" onclick="authGo()">دخول</button>
+ <p id="ae" style="color:#dc2626;font-size:14px;margin:10px 0 0"></p>
+</div></div>
+
+<!-- ===== لوحة المستخدم ===== -->
+<div id="app" class="hide">
+ <aside id="side"></aside>
+ <div id="ov" onclick="side.classList.remove('open')"></div>
+ <div id="top"><button id="mb" class="ib nb" onclick="side.classList.toggle('open')"></button><h2 id="ttl"></h2><button id="md" class="ib" onclick="dark()"></button></div>
+ <div id="main"></div>
+</div>
+
+<a id="wa" class="wa hide" target="_blank" href="#"><svg viewBox="0 0 24 24"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.6 7.4L3.5 20l1.2-4.3A8.5 8.5 0 1 1 20.5 11.5z"/><path d="M9 8c-.3 3.6 3 6.8 6.6 6.9l1-1.6-2.1-1-.9.8c-1-.4-2-1.4-2.4-2.4l.8-.9-1-2.1z"/></svg></a>
+<script src="/common.js"></script>
+<script>
+let U=null,mode='l',poll,PL={plans:[],support:'',trial:{days:2,msgs:30}};
+const FE=[['qr','ربط بالـ QR','اربط رقمك بمسح رمز واحد مع إعادة اتصال تلقائية.'],['code','REST API كامل','مفتاح API وأمثلة جاهزة بأربع لغات برمجية.'],['shield','رموز OTP','أرسل رموز التحقق مع قوالب قابلة للتخصيص.'],['mega','حملات جماعية','أرسل لآلاف الأرقام بفواصل زمنية آمنة.'],['chart','تقارير مفصلة','سجل كامل لكل رسالة وحالتها وإحصائيات لحظية.'],['lock','أمان وخصوصية','مصادقة JWT وكلمات مرور مشفرة ومفاتيح قابلة للتجديد.']];
+(async()=>{try{PL=await api('/plans')}catch{}
+ tdays.textContent=PL.trial.days;tmsgs.textContent=PL.trial.msgs;
+ feats.innerHTML=FE.map(f=>`<div class="card ft"><div class="ic">${ic(f[0])}</div><h4>${f[1]}</h4><p>${f[2]}</p></div>`).join('');
+ plans.innerHTML=`<div class="card plan"><h3>تجربة مجانية</h3><div class="pr">0</div><ul><li>${PL.trial.days} أيام</li><li>${PL.trial.msgs} رسالة فقط</li><li>كل الأدوات متاحة</li></ul><button class="btn o w" onclick="openAuth('r')">ابدأ مجاناً</button></div>`+PL.plans.map((p,i)=>`<div class="card plan ${i==1?'hot':''}">${i==1?'<span class="badge" style="position:absolute;top:-11px;right:50%;transform:translateX(50%)">الأكثر طلباً</span>':''}<h3>${p.name}</h3><div class="pr">${p.price}</div><ul><li>${p.days} يوم</li><li>${p.daily.toLocaleString('ar-EG')} رسالة يومياً</li><li>API وOTP وحملات</li></ul><button class="btn w ${i==1?'':'o'}" onclick="openAuth('r')">اشترك الآن</button></div>`).join('');
+ if(localStorage.t)boot()})();
+
+function openAuth(m){mode=m;am.classList.remove('hide');fr.classList.toggle('hide',m=='l');go_.textContent=m=='l'?'دخول':'ابدأ التجربة المجانية';tl.className='btn s'+(m=='l'?'':' o');tr.className='btn s'+(m=='r'?'':' o');ae.textContent=''}
+const go_=document.getElementById("gob");
+async function authGo(){try{const j=await api(mode=='l'?'/auth/login':'/auth/register','POST',{name:rn.value,email:em.value,password:pw.value});localStorage.t=j.token;am.classList.add('hide');boot()}catch(e){ae.textContent=e.message}}
+function logout(){localStorage.removeItem('t');location.reload()}
+
+const MENU=[['الرئيسية',[['dash','dash','لوحة التحكم']]],
+['إرسال الرسائل والحملات',[['qr','qr','ربط واتساب (QR)'],['send','send','إرسال الحملات والرسائل'],['track','act','متابعة إرسال الحملات'],['contacts','users','جهات الاتصال والعملاء'],['logs','hist','سجل التقارير والإرسال'],['auto','bot','الردود الآلية الذكية']]],
+['الأدوات والأتمتة وال API',[['otp','shield','رموز التحقق (OTP)'],['tpl','file','قوالب رسائل OTP'],['keys','key','مفاتيح الربط البرمجي (API)'],['ai','spark','شات بوت الذكاء الاصطناعي (AI)'],['groups','dl','سحب أرقام الجروبات (Excel)'],['health','bars','حالة استقرار الاتصال'],['team','uc','إدارة فريق العمل (الحسابات الفرعية)']]],
+['الحساب والخدمات',[['sub','card','باقات الاشتراك والترقية'],['wallet','wallet','رصيد المحفظة والفواتير'],['help','help','الدعم الفني والمساعدة'],['settings','gear','إعدادات الحساب والأمان']]]];
+const LBL={};MENU.forEach(g=>g[1].forEach(m=>LBL[m[0]]=m[2]));
+const tg=(el)=>{el.classList.toggle('c');el.nextElementSibling.classList.toggle('c')};
+async function boot(){try{U=await api('/me')}catch{localStorage.removeItem('t');return}
+ land.classList.add('hide');app.classList.remove('hide');mb.innerHTML=ic('menu');md.innerHTML=ic('moon');
+ if(PL.support){wa.href='https://wa.me/'+PL.support.replace(/\D/g,'');wa.classList.remove('hide')}
+ side.innerHTML=`<div class="sb-h"><button class="ib x" onclick="side.classList.remove('open')">${ic('x')}</button><div class="logo"><b>WP</b>SENDER</div><button class="ib" onclick="side.classList.remove('open')">${ic('dbl')}</button></div><nav class="sb-n">`
+ +MENU.map(g=>`<div class="sec-h" onclick="tg(this)"><span>${g[0]}</span>${ic('chev')}</div><div class="grp">`+g[1].map(m=>`<a data-v="${m[0]}" onclick="go('${m[0]}')">${ic(m[1])}${m[2]}</a>`).join('')+'</div>').join('')
+ +(U.role=='admin'?`<a href="/admin.html">${ic('chart')}لوحة الإدارة</a>`:'')+`</nav><div class="me"><div class="u"><div class="av">${(U.name||'?')[0]}</div><div><div class="nm"><span>${U.name}</span><span class="badge">${U.role=='admin'?'رئيسي':'مستخدم'}</span></div><span class="em">${U.email}</span></div></div><button class="btn s w" onclick="logout()">${ic('out')} تسجيل الخروج</button></div>`;
+ go('dash')}
+const V={};
+async function go(v){clearInterval(poll);side.classList.remove('open');document.querySelectorAll('#side a[data-v]').forEach(a=>a.classList.toggle('on',a.dataset.v==v));ttl.textContent=LBL[v];
+ try{U=await api('/me');await V[v]()}catch(e){if(e.status==401)logout();else toast(e.message,false)}}
+const banner=()=>{const s=U.sub;if(s.type=='expired'||s.type=='banned')return`<div class="ban x"><span>⛔ ${s.reason}</span><button class="btn s" onclick="go('sub')">تفعيل اشتراك</button></div>`;
+ if(s.type=='trial')return`<div class="ban"><span>🎁 فترة تجريبية: متبقي ${s.left} يوم و ${s.limit-s.used} رسالة</span><button class="btn s" onclick="go('sub')">ترقية الآن</button></div>`;
+ if(s.type=='paid'&&s.left<=3)return`<div class="ban"><span>⏳ ينتهي اشتراكك خلال ${s.left} أيام</span><button class="btn s" onclick="go('sub')">تجديد</button></div>`;return''};
+const act=f=>async()=>{try{await f()}catch(e){toast(e.message,false)}};
+
+V.dash=async()=>{const s=await api('/stats'),w=await api('/wa/status'),b=U.sub,pc=Math.min(100,b.used/b.limit*100||0);
+ main.innerHTML=banner()+`<div class="grid g4"><div class="card stat"><div class="ic">${ic('send')}</div><div><b>${s.today}</b><span>رسائل اليوم</span></div></div><div class="card stat"><div class="ic">${ic('check')}</div><div><b>${s.total}</b><span>إجمالي المرسل</span></div></div><div class="card stat"><div class="ic">${ic('shield')}</div><div><b>${s.otp}</b><span>رسائل OTP</span></div></div><div class="card stat"><div class="ic">${ic('bell')}</div><div><b>${s.failed}</b><span>فاشلة</span></div></div></div>
+ <div class="grid g2" style="margin-top:16px"><div class="card"><h3>حالة واتساب</h3><span class="badge ${w.status=='connected'?'':'x'}">${w.status=='connected'?'متصل • '+w.phone:'غير متصل'}</span><br><br>${w.status=='connected'?'':'<button class="btn s" onclick="go(\'qr\')">ربط الآن</button>'}</div>
+ <div class="card"><h3>باقتك: ${b.name}</h3>${b.type=='admin'?'<span class="badge b">صلاحيات كاملة</span>':`<div class="bar"><i style="width:${pc}%"></i></div><small style="color:var(--m)">${b.used} / ${b.limit} ${b.type=='paid'?'رسالة اليوم':'رسالة تجريبية'}${b.expires?' • ينتهي '+day(b.expires):''}</small>`}</div></div>`};
+
+V.qr=async()=>{main.innerHTML=banner()+`<div class="card" style="text-align:center;max-width:480px;margin:auto"><h3>ربط رقم واتساب</h3><div id="qs"></div><div id="qi" style="min-height:20px;margin:14px"></div><button class="btn" onclick="act(async()=>{await api('/wa/connect','POST');chk()})()">بدء الربط</button> <button class="btn r" onclick="act(async()=>{await api('/wa/logout','POST');chk()})()">فصل الرقم</button><p style="color:var(--m);font-size:13px">واتساب ← الأجهزة المرتبطة ← ربط جهاز ← امسح الرمز</p></div>`;
+ const chk=async()=>{const w=await api('/wa/status');qs.innerHTML=`<span class="badge ${w.status=='connected'?'':w.status=='qr'?'y':'x'}">${{connected:'متصل • '+w.phone,qr:'بانتظار المسح',connecting:'جارٍ الاتصال...',idle:'غير متصل'}[w.status]}</span>`;qi.innerHTML=w.qr?`<img src="${w.qr}" width="260" style="border-radius:12px;border:1px solid var(--b)">`:''};chk();poll=setInterval(chk,2500)};
+
+const CF=()=>`<div class="card"><h3>حملة جماعية</h3><label>اسم الحملة</label><input id="cname"><label>الأرقام (رقم في كل سطر)</label><textarea id="cnums" rows="5" dir="ltr"></textarea><label>الرسالة</label><textarea id="cmsg" rows="4"></textarea><label>الفاصل بين الرسائل (ثوانٍ)</label><input id="cdl" type="number" value="5"><button class="btn" onclick="act(async()=>{await api('/campaigns','POST',{name:cname.value,message:cmsg.value,delay:+cdl.value,numbers:cnums.value.split(/\\n/)});toast('بدأت الحملة ✓');go('track')})()">بدء الحملة</button></div>`;
+V.send=()=>{main.innerHTML=banner()+`<div class="card"><h3>إرسال رسالة</h3><label>رقم المستلم (دولي)</label><input id="to" dir="ltr" placeholder="+201234567890"><label>الرسالة</label><textarea id="msg" rows="5"></textarea><button class="btn" onclick="act(async()=>{await api('/send','POST',{to:to.value,message:msg.value});toast('تم الإرسال ✓');go('send')})()">${ic('send')} إرسال</button></div>`+CF()};
+
+V.otp=()=>{main.innerHTML=banner()+`<div class="card"><h2 class="ch">إرسال OTP</h2><p class="cd">أرسل كلمة مرور لمرة واحدة لأي رقم WhatsApp لأغراض التحقق.</p>
+<label>رقم WhatsApp المستلم *</label><input id="to" dir="ltr" placeholder="+1234567890"><p class="hint">أدخل رقم الهاتف بالتنسيق الدولي (مثال: +1234567890)</p>
+<label>رسالة مخصصة (اختياري)</label><textarea id="msg" rows="4" placeholder="رمز التحقق الخاص بك: {OTP} هذا الرمز سينتهي خلال 5 دقائق."></textarea>
+<p class="hint">اتركه فارغاً لاستخدام القالب الافتراضي، أو استخدم <code class="k">{OTP}</code> للرمز المكون من 6 أرقام</p><p class="warn">${ic('warn')} يجب أن تتضمن الرسائل المخصصة <code class="k">{OTP}</code></p>
+<button class="btn w" style="padding:14px" onclick="act(async()=>{await api('/otp/send','POST',{to:to.value,message:msg.value||undefined});toast('تم إرسال الرمز ✓')})()">إرسال OTP</button></div>
+<div class="card info"><h3>كيف يعمل</h3><ul><li>سيتم إنشاء رمز OTP مكون من 6 أرقام تلقائياً</li><li>يُرسل الرمز إلى واتساب المستلم وصلاحيته 5 دقائق</li><li>تحقق من الرمز عبر الـ API: <code class="k">POST /api/otp/verify</code></li></ul></div>
+<div class="card"><h3>التحقق من الرمز</h3><label>الرقم</label><input id="vt" dir="ltr"><label>الرمز</label><input id="vc" dir="ltr"><button class="btn o w" onclick="act(async()=>{const j=await api('/otp/verify','POST',{to:vt.value,code:vc.value});toast(j.valid?'الرمز صحيح ✓':'غير صحيح',j.valid)})()">تحقق</button></div>`};
+
+V.tpl=async()=>{const l=await api('/templates');main.innerHTML=`<div class="card"><h3>قالب جديد</h3><label>اسم القالب</label><input id="tn"><label>النص (يحتوي {OTP})</label><textarea id="tb" rows="3">رمز التحقق الخاص بك: {OTP} هذا الرمز سينتهي خلال 5 دقائق.</textarea><label><input type="checkbox" id="td" style="width:auto;margin:0 0 0 8px"> القالب الافتراضي</label><br><br><button class="btn" onclick="if(!tb.value.includes('{OTP}'))return toast('يجب وجود {OTP}',false);act(async()=>{await api('/templates','POST',{name:tn.value,body:tb.value,isDefault:td.checked});go('tpl')})()">حفظ</button></div><div class="card tw"><table>${l.map(t=>row([t.name+(t.isDefault?' <span class="badge">افتراضي</span>':''),t.body,`<button class="btn r s" onclick="api('/templates/${t.id}','DELETE').then(()=>go('tpl'))">حذف</button>`])).join('')||'<tr><td>لا توجد قوالب</td></tr>'}</table></div>`};
+
+V.contacts=async()=>{const l=await api('/contacts');main.innerHTML=`<div class="card"><div class="grid g2"><div><label>الاسم</label><input id="cn"></div><div><label>الرقم</label><input id="cp" dir="ltr"></div></div><button class="btn" onclick="act(async()=>{await api('/contacts','POST',{name:cn.value,phone:cp.value});go('contacts')})()">إضافة</button></div><div class="card tw"><table>${l.map(c=>row([c.name,`<span dir="ltr">${c.phone}</span>`,`<button class="btn r s" onclick="api('/contacts/${c.id}','DELETE').then(()=>go('contacts'))">×</button>`])).join('')||'<tr><td>لا توجد جهات اتصال</td></tr>'}</table></div>`};
+
+V.track=async()=>{const l=await api('/campaigns');main.innerHTML=banner()+`<div class="card tw"><table><tr><th>الحملة</th><th>التقدم</th><th>فشل</th><th>الحالة</th></tr>${l.map(c=>row([c.name,`${c.sent}/${c.total}`,c.failed,`<span class="badge ${c.status=='done'?'':'y'}">${c.status=='done'?'مكتملة':'جارية'}</span>`])).join('')||'<tr><td colspan="4">لا توجد حملات</td></tr>'}</table></div>`;
+ if(l.some(c=>c.status=='running'))poll=setInterval(()=>go('track'),6000)};
+const soon=(t,d,i)=>()=>{main.innerHTML=`<div class="card empty"><div class="ic">${ic(i)}</div><h3>${t}</h3><p>${d}</p><span class="badge y">قريباً</span></div>`};
+V.auto=soon('الردود الآلية الذكية','ضبط ردود تلقائية على الكلمات المفتاحية.','bot');
+V.ai=soon('شات بوت الذكاء الاصطناعي','ردّ تلقائي بالذكاء الاصطناعي على عملائك.','spark');
+V.groups=soon('سحب أرقام الجروبات','استخراج أرقام أعضاء الجروبات إلى ملف Excel.','dl');
+V.team=soon('إدارة فريق العمل','إضافة حسابات فرعية لفريقك بصلاحيات محددة.','uc');
+V.wallet=soon('رصيد المحفظة والفواتير','عرض الرصيد وفواتير الاشتراكات.','wallet');
+V.health=async()=>{const w=await api('/wa/status');main.innerHTML=`<div class="card empty"><div class="ic">${ic('bars')}</div><h3>حالة الاتصال</h3><span class="badge ${w.status=='connected'?'':'x'}">${w.status=='connected'?'متصل • '+w.phone:'غير متصل'}</span></div>`};
+V.help=()=>{main.innerHTML=`<div class="card empty"><div class="ic">${ic('help')}</div><h3>الدعم الفني والمساعدة</h3><p>فريقنا جاهز لمساعدتك عبر واتساب.</p>${PL.support?`<a class="btn" target="_blank" href="https://wa.me/${PL.support.replace(/\D/g,'')}">تواصل عبر واتساب</a>`:''}</div>`};
+V.settings=()=>{main.innerHTML=`<div class="card"><h3>بيانات الحساب</h3><label>الاسم</label><input value="${U.name}" readonly><label>البريد الإلكتروني</label><input dir="ltr" value="${U.email}" readonly><button class="btn r s" onclick="confirm('سيتوقف المفتاح القديم. متابعة؟')&&api('/key/regen','POST').then(()=>toast('تم توليد مفتاح جديد ✓'))">توليد مفتاح API جديد</button></div>`};
+
+V.logs=async()=>{const l=await api('/logs');main.innerHTML=`<div class="card tw"><table><tr><th>الرقم</th><th>النوع</th><th>الحالة</th><th>الوقت</th></tr>${l.map(x=>row([`<span dir="ltr">${x.to}</span>`,x.type,`<span class="badge ${x.ok?'':'x'}">${x.ok?'تم':'فشل'}</span>`,fmt(x.at)])).join('')||'<tr><td>لا توجد رسائل</td></tr>'}</table></div>`};
+
+V.keys=()=>{const b=location.origin+'/api',k=U.apiKey,m='مرحباً بك! هذه رسالة تجريبية من WP Sender API 🚀';
+ const S={cURL:`curl -X POST ${b}/send \\\n -H "X-API-Key: ${k}" \\\n -H "Content-Type: application/json" \\\n -d '{"to":"201xxxxxxxxx","message":"${m}"}'`,
+ 'Node.js':`const response = await fetch('${b}/send', {\n  method: 'POST',\n  headers: {\n    'Content-Type': 'application/json',\n    'X-API-Key': '${k}'\n  },\n  body: JSON.stringify({\n    to: '201xxxxxxxxx',\n    message: '${m}'\n  })\n});\nconst data = await response.json();`,
+ Python:`import requests\n\nr = requests.post('${b}/send',\n  headers={'X-API-Key': '${k}'},\n  json={'to': '201xxxxxxxxx',\n        'message': '${m}'})\nprint(r.json())`,
+ PHP:`$ch = curl_init('${b}/send');\ncurl_setopt_array($ch, [\n  CURLOPT_POST => 1,\n  CURLOPT_RETURNTRANSFER => 1,\n  CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'X-API-Key: ${k}'],\n  CURLOPT_POSTFIELDS => json_encode(['to' => '201xxxxxxxxx', 'message' => '${m}'])\n]);\necho curl_exec($ch);`};
+ window._S=S;
+ const kv=(l,v,sh,d,c='')=>`<div class="card kv"><div class="tp"><span class="lb">${l}</span><button class="cp" onclick="copy('${v}')">${ic('copy')}</button></div><code class="${c}">${sh||v}</code><small>${d}</small></div>`;
+ main.innerHTML=banner()+kv('BASE API URL',b,'','نقطة النهاية الأساسية لجميع طلبات REST API')+kv('AUTHENTICATION HEADER','X-API-Key: '+k,'X-API-Key: '+k.slice(0,11)+'...','مرر المفتاح في Header كل طلب للمصادقة','g')+kv('REQUEST FORMAT','Content-Type: application/json','','جميع البيانات ترسل وتُستقبل بصيغة JSON')
+ +`<div class="card dk"><div class="hd"><h3>${ic('term')}<span>نموذج كود الإرسال السريع (Send Message)</span></h3><button class="cpb" onclick="copy(kc.textContent)">${ic('copy')}نسخ الكود</button></div><div class="seg">${Object.keys(S).map(n=>`<button class="${n=='Node.js'?'on':''}" onclick="kc.textContent=_S['${n}'];document.querySelectorAll('.seg button').forEach(x=>x.classList.remove('on'));this.classList.add('on')">${n}</button>`).join('')}</div><pre id="kc"></pre><p>* الكود أعلاه يحتوي على مفتاح الـ API الخاص بك جاهزاً للنسخ والتجربة المباشرة في تطبيقك.</p></div>
+ <div class="card"><div class="hd2"><h3>${ic('bolt')}مختبر تجربة الـ API المباشر (Tester)</h3><span class="badge">تجربة حية</span></div><label>رقم المستلم</label><input id="tph" dir="ltr" placeholder="+201234567890"><label>الرسالة</label><textarea id="tmsg" rows="3">${m}</textarea><button class="btn w" onclick="act(async()=>{const j=await api('/send','POST',{to:tph.value,message:tmsg.value});tres.textContent=JSON.stringify(j,null,2);toast('تم الإرسال ✓')})()">إرسال تجريبي</button><pre class="c" id="tres" style="margin:12px 0 0;background:#030712;color:#6ee7b7;border-radius:12px;padding:12px;direction:ltr;text-align:left;font:12.5px Consolas,monospace;display:block;min-height:0"></pre>
+ <button class="btn r s" style="margin-top:12px" onclick="confirm('سيتوقف المفتاح القديم. متابعة؟')&&api('/key/regen','POST').then(()=>go('keys'))">توليد مفتاح جديد</button></div>`;
+ kc.textContent=S['Node.js']};
+
+V.sub=async()=>{const s=U.sub,pl=await api('/plans');
+ main.innerHTML=banner()+`<div class="card"><h3>اشتراكك الحالي</h3><span class="badge ${s.active?'':'x'}">${s.name}</span> ${s.expires?`<small style="color:var(--m)">ينتهي ${day(s.expires)}</small>`:''}</div>
+ <div class="grid g3">${pl.plans.map(p=>`<div class="card plan"><h3>${p.name}</h3><div class="pr">${p.price}</div><ul><li>${p.days} يوم</li><li>${p.daily.toLocaleString('ar-EG')} رسالة يومياً</li></ul><button class="btn w" onclick="act(async()=>{await api('/request','POST',{planId:'${p.id}',note:prompt('رقم هاتفك / رقم عملية الدفع (اختياري)')||''});toast('تم إرسال طلبك، سيتم التفعيل قريباً ✓')})()">طلب تفعيل</button></div>`).join('')}</div>
+ ${pl.support?`<div class="card" style="text-align:center">للدفع والتفعيل السريع تواصل معنا<br><br><a class="btn" href="https://wa.me/${pl.support.replace(/\D/g,'')}" target="_blank">تواصل عبر واتساب</a></div>`:''}`};
+</script></body></html>
