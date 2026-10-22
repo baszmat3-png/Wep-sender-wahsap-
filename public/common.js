@@ -4,7 +4,9 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const ic=n=>`<svg class="i" viewBox="0 0 24 24"><path d="${P[n]}"/></svg>`;
 async function api(p,m='GET',b){let r;try{r=await fetch('/api'+p,{method:m,headers:{'Content-Type':'application/json',Authorization:'Bearer '+(localStorage.t||'')},body:b?JSON.stringify(b):undefined})}catch(e){throw new Error('لا يوجد اتصال بالخادم')}const j=await r.json().catch(()=>null);if(!r.ok||j===null)throw Object.assign(new Error((j&&j.error)||('تعذر الاتصال بالخادم (HTTP '+r.status+') — تأكد أن الخدمة تعمل على Render')),{status:r.status});return j}
 function toast(m,ok=true){document.getElementById('toast')?.remove();const d=document.createElement('div');d.id='toast';d.className=ok?'':'e';d.textContent=m;document.body.appendChild(d);setTimeout(()=>d.remove(),3200)}
-const copy=t=>{navigator.clipboard.writeText(t);toast('تم النسخ ✓')};
+const copy=async t=>{try{await navigator.clipboard.writeText(t)}catch{const a=document.createElement('textarea');a.value=t;a.style.cssText='position:fixed;opacity:0';document.body.appendChild(a);a.select();try{document.execCommand('copy')}catch{}a.remove()}toast('تم النسخ ✓')};
+const codeOf=t=>{const m=String(t||'').match(/(?<!\d)\d{6}(?!\d)/);return m?m[0]:''};
+const codeBtn=t=>{const c=codeOf(t);return c?`<button class="btn g s" style="margin-top:6px" onclick="copy('${c}')">📋 نسخ الكود ${c}</button>`:''};
 const fmt=d=>new Date(d).toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'});
 const day=d=>new Date(d).toLocaleDateString('ar-EG');
 const row=a=>'<tr>'+a.map(x=>`<td>${x??''}</td>`).join('')+'</tr>';

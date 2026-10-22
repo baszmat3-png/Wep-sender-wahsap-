@@ -351,7 +351,10 @@ app.post(['/api/send', '/api/messages/send'], auth, apiGate, wrap(async (req, re
 app.post('/api/otp/send', auth, need('otp'), apiGate, wrap(async (req, res) => {
   const to = req.body.to || req.body.phone, { message } = req.body; if (!to) throw new Error('to مطلوب');
   const code = String(crypto.randomInt(100000, 999999));
-  const tpl = message || (db.templates.find(t => t.uid === req.owner.id && t.isDefault)?.body) || 'رمز التحقق الخاص بك: {OTP} هذا الرمز سينتهي خلال 5 دقائق.';
+  const mine = db.templates.filter(t => t.uid === req.owner.id), ref = String(req.body.template || '').trim();
+  const picked = ref && (mine.find(t => t.id === ref) || mine.find(t => t.name === ref));
+  if (ref && !picked && !message) throw new Error('القالب غير موجود');
+  const tpl = message || picked?.body || (mine.find(t => t.isDefault)?.body) || 'رمز التحقق الخاص بك: {OTP} هذا الرمز سينتهي خلال 5 دقائق.';
   if (!tpl.includes('{OTP}')) throw new Error('يجب أن تتضمن الرسالة {OTP}');
   otps[req.owner.id + ':' + norm(to)] = { code, exp: Date.now() + 5 * 60e3 };
   await sendWA(req.owner, req.user, to, tpl.replace(/\{OTP\}/g, code), { type: 'otp', sid: req.body.session }); res.json({ success: true, expires_in: 300 });
@@ -363,10 +366,33 @@ app.post('/api/otp/verify', auth, need('otp'), apiGate, (req, res) => {
   delete otps[k]; res.json({ valid: true });
 });
 app.get('/api/otp/template', auth, (req, res) => res.json({ body: db.templates.find(t => t.uid === req.owner.id && t.isDefault)?.body || '' }));
-app.post('/api/otp/template', auth, mainOnly, wrap(async (req, res) => {
+app.post('/api/otp/template', auth, mainOnly, wrap(async (req, res) => {   // متوافق مع النسخة القديمة: يضبط القالب الافتراضي
   const body = String(req.body.body || '').trim().slice(0, 500);
-  db.templates = db.templates.filter(t => t.uid !== req.owner.id);
-  if (body) { if (!body.includes('{OTP}')) throw new Error('يجب أن يتضمن القالب {OTP}'); db.templates.push({ id: id(), uid: req.owner.id, name: 'default', body, isDefault: true }); }
+  db.templates = db.templates.filter(t => !(t.uid === req.owner.id && t.isDefault));
+  if (body) { if (!body.includes('{OTP}')) throw new Error('يجب أن يتضمن القالب {OTP}'); db.templates.push({ id: id(), uid: req.owner.id, name: 'القالب الافتراضي', body, isDefault: true }); }
+  save(); res.json({ ok: true });
+}));
+const tplView = t => ({ id: t.id, name: t.name, body: t.body, isDefault: !!t.isDefault });
+app.get('/api/otp/templates', auth, (req, res) => res.json(db.templates.filter(t => t.uid === req.owner.id).map(tplView)));
+app.post('/api/otp/templates', auth, mainOnly, wrap(async (req, res) => {
+  const name = String(req.body.name || '').trim().slice(0, 60), body = String(req.body.body || '').trim().slice(0, 500);
+  if (!name) throw new Error('اسم القالب مطلوب'); if (!body.includes('{OTP}')) throw new Error('يجب أن يتضمن القالب {OTP}');
+  const mine = db.templates.filter(t => t.uid === req.owner.id);
+  if (mine.some(t => t.name === name && t.id !== req.body.id)) throw new Error('يوجد قالب بنفس الاسم');
+  let t = req.body.id && mine.find(t => t.id === req.body.id);
+  if (!t) { if (mine.length >= 30) throw new Error('الحد الأقصى 30 قالباً'); t = { id: id(), uid: req.owner.id }; db.templates.push(t); }
+  t.name = name; t.body = body;
+  if (req.body.isDefault) { mine.forEach(x => x.isDefault = false); t.isDefault = true; } else if (!mine.some(x => x.isDefault && x !== t)) t.isDefault = true;
+  save(); res.json(tplView(t));
+}));
+app.post('/api/otp/templates/:id/default', auth, mainOnly, wrap(async (req, res) => {
+  const mine = db.templates.filter(t => t.uid === req.owner.id), t = mine.find(t => t.id === req.params.id); if (!t) throw new Error('غير موجود');
+  mine.forEach(x => x.isDefault = false); t.isDefault = true; save(); res.json({ ok: true });
+}));
+app.delete('/api/otp/templates/:id', auth, mainOnly, wrap(async (req, res) => {
+  const i = db.templates.findIndex(t => t.uid === req.owner.id && t.id === req.params.id); if (i < 0) throw new Error('غير موجود');
+  const was = db.templates[i].isDefault; db.templates.splice(i, 1);
+  if (was) { const n = db.templates.find(t => t.uid === req.owner.id); if (n) n.isDefault = true; }
   save(); res.json({ ok: true });
 }));
 

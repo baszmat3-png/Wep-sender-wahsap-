@@ -1,25 +1,36 @@
 /* ===== أقسام لوحة المستخدم (2) ===== */
 
 /* --- OTP --- */
-V.otp=()=>{main.innerHTML=banner()+`<div class="card"><h2 class="ch">إرسال OTP</h2><p class="cd">أرسل كلمة مرور لمرة واحدة لأي رقم WhatsApp لأغراض التحقق.</p>
+V.otp=()=>{setTimeout(async()=>{try{const t=await api('/otp/templates');otpl.innerHTML='<option value="">القالب الافتراضي</option>'+t.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}${x.isDefault?' ★':''}</option>`).join('');otpRecent()}catch{}},0);main.innerHTML=banner()+`<div class="card"><h2 class="ch">إرسال OTP</h2><p class="cd">أرسل كلمة مرور لمرة واحدة لأي رقم WhatsApp لأغراض التحقق.</p>
 <label>رقم WhatsApp المستلم *</label><input id="to" class="phone" dir="ltr" placeholder="+9647XXXXXXXXX"><p class="hint">اكتب الرقم العراقي مباشرة (مثال: 07701234567) وسيُضاف +964 تلقائياً</p>
+<label>قالب الرسالة</label><select id="otpl"><option value="">القالب الافتراضي</option></select>
 <label>رسالة مخصصة (اختياري)</label><textarea id="msg" rows="4" placeholder="رمز التحقق الخاص بك: {OTP} هذا الرمز سينتهي خلال 5 دقائق."></textarea>
 <p class="hint">اتركه فارغاً لاستخدام القالب الافتراضي، أو استخدم <code class="k">{OTP}</code> للرمز المكون من 6 أرقام</p><p class="warn">${ic('warn')} يجب أن تتضمن الرسائل المخصصة <code class="k">{OTP}</code></p>
 <button class="btn w" style="padding:14px" onclick="otpSend()">إرسال OTP</button></div>
 <div class="card info"><h3>كيف يعمل</h3><ul><li>سيتم إنشاء رمز OTP مكون من 6 أرقام تلقائياً</li><li>يُرسل الرمز إلى واتساب المستلم وصلاحيته 5 دقائق</li><li>تحقق من الرمز عبر الـ API: <code class="k">POST /api/otp/verify</code></li></ul></div>
+<div class="card"><h3>آخر رسائل OTP المرسلة</h3><div id="otrc"></div></div>
 <div class="card"><h3>التحقق من الرمز</h3><label>الرقم</label><input id="vt" class="phone" dir="ltr" placeholder="+9647XXXXXXXXX"><label>الرمز</label><input id="vc" dir="ltr"><button class="btn o w" onclick="otpVerify()">تحقق</button></div>`};
-window.otpSend=A(async()=>{await api('/otp/send','POST',{to:to.value,message:msg.value||undefined});toast('تم إرسال الرمز ✓')});
+window.otpSend=A(async()=>{await api('/otp/send','POST',{to:to.value,message:msg.value||undefined,template:otpl.value||undefined});toast('تم إرسال الرمز ✓');otpRecent()});
+window.otpRecent=A(async()=>{const r=await api('/logs?kind=otp'),el=document.getElementById('otrc');if(!el)return;el.innerHTML=r.items.slice(0,5).map(x=>`<div class="card" style="margin:8px 0;box-shadow:none;background:var(--bg)"><small dir="ltr" style="color:var(--m)">+${esc(x.to)} • ${fmt(x.at)}</small><div style="white-space:pre-wrap;margin-top:4px">${esc(x.text||'')}</div>${codeBtn(x.text)}</div>`).join('')||'<p class="hint">لا توجد رسائل OTP بعد</p>'});
 window.otpVerify=A(async()=>{const j=await api('/otp/verify','POST',{to:vt.value,code:vc.value});toast(j.valid?'الرمز صحيح ✓':'غير صحيح',j.valid)});
 
 /* --- قالب OTP --- */
 const TPL_EN='Your verification code is: {OTP}\n\nThis code will expire in 5 minutes.\n\nDo not share this code with anyone.',TPL_AR='رمز التحقق الخاص بك: {OTP}\n\nهذا الرمز سينتهي خلال 5 دقائق.\n\nلا تشارك هذا الرمز مع أي شخص.';
-V.tpl=async()=>{const r=await api('/otp/template');
- main.innerHTML=`<div class="card"><h2 class="ch">قالب رسالة OTP</h2><p class="cd" style="font-size:15px">أنشئ قالباً مخصصاً لرسائل OTP الخاصة بك. سيتم استخدام هذا القالب تلقائياً عند إرسال OTP عبر API دون تحديد رسالة مخصصة.</p></div>
- <div class="card"><h3>محرر القالب</h3><label>قالب OTP الخاص بك</label><textarea id="tb" rows="7" maxlength="500" oninput="tcnt.textContent=this.value.length">${esc(r.body)}</textarea>
- <p class="hint">استخدم <code class="k">{OTP}</code> حيث تريد ظهور الرمز المكون من 6 أرقام<br>عدد الأحرف: <span id="tcnt">${r.body.length}</span> / 500</p>
- <div class="chips"><button class="btn g s" onclick="tb.value=TPL_EN;tcnt.textContent=tb.value.length">📝 استخدام القالب الافتراضي</button><button class="btn g s" onclick="tb.value=TPL_AR;tcnt.textContent=tb.value.length">🇮🇶 استخدام القالب العربي</button><button class="btn g s" onclick="tb.value='';tcnt.textContent=0">🗑️ مسح القالب</button></div>
- ${SELF()?'':'<button class="btn" style="margin-top:12px" onclick="tplSave()">💾 حفظ القالب</button>'}</div>`};
-window.tplSave=A(async()=>{await api('/otp/template','POST',{body:tb.value});toast('تم حفظ القالب ✓')});
+let TPLS=[];
+V.tpl=async()=>{TPLS=await api('/otp/templates');
+ main.innerHTML=`<div class="card"><h2 class="ch">قوالب رسائل OTP</h2><p class="cd" style="font-size:15px">أضف أي عدد من القوالب (حتى 30) واختر القالب الافتراضي. عند إرسال OTP عبر API أرسل <code class="k">"template": "اسم القالب"</code> لاستخدام قالب محدد، أو اتركه لاستخدام الافتراضي.</p></div>
+ ${SELF()?'':`<div class="card"><h3 id="tft">إضافة قالب جديد</h3><input type="hidden" id="tid"><label>اسم القالب</label><input id="tn" maxlength="60" placeholder="مثال: تسجيل الدخول">
+ <label>نص القالب</label><textarea id="tb" rows="6" maxlength="500" oninput="tcnt.textContent=this.value.length"></textarea>
+ <p class="hint">استخدم <code class="k">{OTP}</code> حيث تريد ظهور الرمز المكون من 6 أرقام • عدد الأحرف: <span id="tcnt">0</span> / 500</p>
+ <div class="chips"><button class="btn g s" onclick="tb.value=TPL_EN;tcnt.textContent=tb.value.length">📝 نموذج إنجليزي</button><button class="btn g s" onclick="tb.value=TPL_AR;tcnt.textContent=tb.value.length">🇮🇶 نموذج عربي</button></div>
+ <label class="chk" style="margin-top:10px"><input type="checkbox" id="tdf"> جعله القالب الافتراضي</label>
+ <div style="display:flex;gap:8px;margin-top:12px"><button class="btn" onclick="tplSave()">💾 حفظ القالب</button><button class="btn o" onclick="tplNew()">جديد</button></div></div>`}
+ <div class="card"><h3>قوالبي (${TPLS.length})</h3>${TPLS.map((t,i)=>`<div class="card" style="margin:10px 0 0;box-shadow:none;background:var(--bg)"><div class="sh"><b>${esc(t.name)} ${t.isDefault?'<span class="badge">الافتراضي</span>':''}</b>${SELF()?'':`<span><button class="btn s" onclick="tplEdit(${i})">تعديل</button> ${t.isDefault?'':`<button class="btn g s" onclick="tplDef('${t.id}')">افتراضي</button> `}<button class="btn s" style="color:#dc2626" onclick="tplDel('${t.id}')">حذف</button></span>`}</div><div style="white-space:pre-wrap;margin-top:6px;color:var(--m)">${esc(t.body)}</div></div>`).join('')||'<p class="hint">لا توجد قوالب بعد. أضف قالبك الأول من الأعلى.</p>'}</div>`};
+window.tplNew=()=>{tid.value='';tn.value='';tb.value='';tdf.checked=false;tcnt.textContent=0;tft.textContent='إضافة قالب جديد'};
+window.tplEdit=i=>{const t=TPLS[i];tid.value=t.id;tn.value=t.name;tb.value=t.body;tdf.checked=t.isDefault;tcnt.textContent=t.body.length;tft.textContent='تعديل القالب';window.scrollTo({top:0,behavior:'smooth'})};
+window.tplSave=A(async()=>{await api('/otp/templates','POST',{id:tid.value||undefined,name:tn.value,body:tb.value,isDefault:tdf.checked});toast('تم حفظ القالب ✓');V.tpl()});
+window.tplDef=A(async id=>{await api(`/otp/templates/${id}/default`,'POST',{});toast('تم ✓');V.tpl()});
+window.tplDel=A(async id=>{if(!confirm('حذف هذا القالب؟'))return;await api(`/otp/templates/${id}`,'DELETE');toast('تم الحذف ✓');V.tpl()});
 
 /* --- مفاتيح API --- */
 let KT='keys',KS=false;
