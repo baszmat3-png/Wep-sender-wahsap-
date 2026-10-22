@@ -36,16 +36,24 @@ X-API-Key: wps_7b5db2a8...
  <footer>© WP Sender — جميع الحقوق محفوظة</footer>
 </div>
 
-<!-- ===== نافذة الدخول ===== -->
-<div id="am" class="modal hide" onclick="if(event.target==this)this.classList.add('hide')"><div class="card">
- <div class="logo" style="justify-content:center;margin-bottom:14px"><b>WP</b>SENDER</div>
- <div class="tabs"><button id="tl" class="btn s" style="flex:1" onclick="openAuth('l')">تسجيل الدخول</button><button id="tr" class="btn s o" style="flex:1" onclick="openAuth('r')">إنشاء حساب</button></div>
- <div id="fr" class="hide"><label>الاسم الكامل</label><input id="rn"></div>
- <label>البريد الإلكتروني</label><input id="em" type="email" dir="ltr">
- <label>كلمة المرور</label><input id="pw" type="password" dir="ltr" onkeydown="if(event.key=='Enter')authGo()">
- <button class="btn w" id="gob" onclick="authGo()">دخول</button>
- <p id="ae" style="color:#dc2626;font-size:14px;margin:10px 0 0"></p>
-</div></div>
+<!-- ===== صفحة الدخول ===== -->
+<div id="auth" class="auth hide">
+ <button class="back" onclick="closeAuth()">الرجوع للرئيسية</button>
+ <div class="alogo"><svg viewBox="0 0 48 48" width="64" height="64" fill="none" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="24" r="18"/><path d="M14 32l4-14 6 10 6-10 4 14"/><path d="M8 38l-2 5 6-2"/></svg></div>
+ <h1 id="at">تسجيل الدخول</h1><p class="as" id="as">أهلاً بك مجدداً في منصة أتمتة الواتساب</p>
+ <div class="acard">
+  <div id="atabs" class="seg2"><button id="tm" class="on" onclick="setKind('main')">👤 الحساب الرئيسي</button><button id="ts" onclick="setKind('sub')">👥 حساب فرعي</button></div>
+  <div id="fr" class="hide"><label>الاسم الكامل</label><input id="rn" autocomplete="name"><label>رقم الهاتف (واتساب)</label><input id="rph" class="phone" dir="ltr" placeholder="+9647XXXXXXXXX" autocomplete="tel"></div>
+  <div id="ff1"><label>البريد الإلكتروني</label><input id="em" type="email" dir="ltr" placeholder="name@example.com" autocomplete="username"></div>
+  <div id="fcode" class="hide"><label>رمز التحقق (وصلك على واتساب)</label><input id="rc" dir="ltr" inputmode="numeric" maxlength="6"></div>
+  <div id="fp"><label id="pl">كلمة المرور</label><input id="pw" type="password" dir="ltr" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key=='Enter')authGo()"></div>
+  <a id="flink" class="flink" href="#" onclick="forgotMode();return false">نسيت كلمة المرور؟</a>
+  <button class="btn w big" id="gob" onclick="authGo()">دخول</button>
+  <p id="ae" class="aerr"></p>
+  <div class="or"><span>أو</span></div>
+  <button class="btn o w" id="alt" onclick="openAuth('r')">إنشاء حساب جديد</button>
+ </div>
+</div>
 
 <!-- ===== لوحة المستخدم ===== -->
 <div id="app" class="hide">
@@ -66,9 +74,29 @@ window.addEventListener('load',async()=>{try{PL=await api('/plans')}catch{}
  plans.innerHTML=`<div class="card plan"><h3>تجربة مجانية</h3><div class="pr">0</div><ul><li>${PL.trial.days} أيام</li><li>${PL.trial.msgs} رسالة فقط</li><li>كل الأدوات متاحة</li></ul><button class="btn o w" onclick="openAuth('r')">ابدأ مجاناً</button></div>`+PL.plans.map((p,i)=>`<div class="card plan ${i==1?'hot':''}">${i==1?'<span class="badge" style="position:absolute;top:-11px;right:50%;transform:translateX(50%)">الأكثر طلباً</span>':''}<h3>${esc(p.name)}</h3><div class="pr">${p.price}</div><ul><li>${p.days} يوم</li><li>${p.daily.toLocaleString('ar-EG')} رسالة يومياً</li><li>API وOTP وحملات</li></ul><button class="btn w ${i==1?'':'o'}" onclick="openAuth('r')">اشترك الآن</button></div>`).join('');
  if(localStorage.t)boot()});
 
-function openAuth(m){mode=m;am.classList.remove('hide');fr.classList.toggle('hide',m=='l');go_.textContent=m=='l'?'دخول':'ابدأ التجربة المجانية';tl.className='btn s'+(m=='l'?'':' o');tr.className='btn s'+(m=='r'?'':' o');ae.textContent=''}
-const go_=document.getElementById("gob");
-async function authGo(){try{const j=await api(mode=='l'?'/auth/login':'/auth/register','POST',{name:rn.value,email:em.value,password:pw.value});localStorage.t=j.token;am.classList.add('hide');boot()}catch(e){ae.textContent=e.message}}
+let KIND='main',FSTEP=0;
+function closeAuth(){auth.classList.add('hide');land.classList.remove('hide')}
+function setKind(k){KIND=k;tm.classList.toggle('on',k=='main');ts.classList.toggle('on',k=='sub');if(k=='sub'&&mode=='r')openAuth('l')}
+function openAuth(m){mode=m;FSTEP=0;land.classList.add('hide');auth.classList.remove('hide');ae.textContent='';window.scrollTo(0,0);
+ const reg=m=='r',fg=m=='f';
+ at.textContent=reg?'إنشاء حساب جديد':fg?'استعادة كلمة المرور':'تسجيل الدخول';
+ as.textContent=reg?`ابدأ تجربتك المجانية (${PL.trial.days} أيام • ${PL.trial.msgs} رسالة)`:fg?'سنرسل رمز التحقق إلى رقم واتساب المسجّل في حسابك':'أهلاً بك مجدداً في منصة أتمتة الواتساب';
+ atabs.classList.toggle('hide',reg||fg);fr.classList.toggle('hide',!reg);fcode.classList.add('hide');fp.classList.toggle('hide',fg);flink.classList.toggle('hide',reg||fg);
+ pl.textContent='كلمة المرور';pw.autocomplete=reg?'new-password':'current-password';
+ gob.textContent=reg?'إنشاء الحساب':fg?'إرسال الرمز':'دخول';
+ alt.textContent=m=='l'?'إنشاء حساب جديد':'لديك حساب؟ تسجيل الدخول';alt.onclick=()=>openAuth(m=='l'?'r':'l');
+ try{if(localStorage.em&&!em.value)em.value=localStorage.em}catch{}}
+function forgotMode(){openAuth('f')}
+async function authGo(){ae.textContent='';gob.disabled=true;
+ try{let j;
+  if(mode=='f'){
+   if(FSTEP==0){const r=await api('/auth/forgot','POST',{email:em.value});ae.style.color='#15803d';ae.textContent=r.message;FSTEP=1;fcode.classList.remove('hide');fp.classList.remove('hide');pl.textContent='كلمة المرور الجديدة';gob.textContent='تغيير كلمة المرور';return}
+   j=await api('/auth/reset','POST',{email:em.value,code:rc.value,password:pw.value})}
+  else if(mode=='r')j=await api('/auth/register','POST',{name:rn.value,email:em.value,phone:rph.value,password:pw.value});
+  else j=await api('/auth/login','POST',{email:em.value,password:pw.value,kind:KIND});
+  try{localStorage.em=em.value.trim()}catch{}
+  localStorage.t=j.token;auth.classList.add('hide');pw.value='';boot()}
+ catch(e){ae.style.color='#dc2626';ae.textContent=e.message}finally{gob.disabled=false}}
 function logout(){localStorage.removeItem('t');location.reload()}
 
 const MENU=[['الرئيسية',[['dash','dash','لوحة التحكم']]],
@@ -80,9 +108,10 @@ const tg=(el)=>{el.classList.toggle('c');el.nextElementSibling.classList.toggle(
 async function boot(){try{U=await api('/me')}catch{localStorage.removeItem('t');return}
  land.classList.add('hide');app.classList.remove('hide');mb.innerHTML=ic('menu');md.innerHTML=ic('moon');
  if(PL.support){wa.href='https://wa.me/'+PL.support.replace(/\D/g,'');wa.classList.remove('hide')}
+ const LOCKS={track:'campaigns',otp:'otp',tpl:'otp',keys:'api',ai:'ai',auto:'auto',groups:'extract',team:'subs'};
  const HID=U.isSub?['team','sub','wallet']:[];
  side.innerHTML=`<div class="sb-h"><button class="ib x" onclick="side.classList.remove('open')">${ic('x')}</button><div class="logo"><b>WP</b>SENDER</div><button class="ib" onclick="side.classList.remove('open')">${ic('dbl')}</button></div><nav class="sb-n">`
- +MENU.map(g=>`<div class="sec-h" onclick="tg(this)"><span>${g[0]}</span>${ic('chev')}</div><div class="grp">`+g[1].filter(m=>!HID.includes(m[0])).map(m=>`<a data-v="${m[0]}" onclick="go('${m[0]}')">${ic(m[1])}${m[2]}</a>`).join('')+'</div>').join('')
+ +MENU.map(g=>`<div class="sec-h" onclick="tg(this)"><span>${g[0]}</span>${ic('chev')}</div><div class="grp">`+g[1].filter(m=>!HID.includes(m[0])).map(m=>`<a data-v="${m[0]}" onclick="go('${m[0]}')">${ic(m[1])}${m[2]}${LOCKS[m[0]]&&U.perms&&!U.perms[LOCKS[m[0]]]?' 🔒':''}</a>`).join('')+'</div>').join('')
  +(U.role=='admin'?`<a href="/admin.html">${ic('chart')}لوحة الإدارة</a>`:'')+`</nav><div class="me"><div class="u"><div class="av">${esc((U.name||'?')[0])}</div><div><div class="nm"><span>${esc(U.name)}</span><span class="badge">${U.role=='admin'?'رئيسي':U.isSub?'فرعي':'مستخدم'}</span></div><span class="em">${esc(U.email)}</span></div></div><button class="btn s w" onclick="logout()">${ic('out')} تسجيل الخروج</button></div>`;
  go('dash')}
 const V={};

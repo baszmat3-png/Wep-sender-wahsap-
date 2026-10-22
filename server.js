@@ -16,9 +16,12 @@ let db = { users: [], logs: [], templates: [], contacts: [], campaigns: [], requ
   { id: 'basic', name: 'الأساسية', price: '15,000 د.ع', days: 30, daily: 300, sessions: 1 },
   { id: 'pro', name: 'الاحترافية', price: '37,500 د.ع', days: 30, daily: 1500, sessions: 3 },
   { id: 'biz', name: 'الأعمال', price: '90,000 د.ع', days: 30, daily: 10000, sessions: 10 }] };
-try { db = { ...db, ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) }; } catch {}
+for (const f of [DB_FILE, DB_FILE + '.tmp']) { try { db = { ...db, ...JSON.parse(fs.readFileSync(f, 'utf8')) }; break; } catch {} }
 for (const p of db.plans) if (/\$/.test(String(p.price))) p.price = (Math.round(parseFloat(String(p.price).replace(/[^\d.]/g, '')) * 1500 / 500) * 500).toLocaleString('en-US') + ' د.ع';   // ترحيل الأسعار من الدولار إلى الدينار
-let t; const save = () => { clearTimeout(t); t = setTimeout(() => { try { fs.writeFileSync(DB_FILE, JSON.stringify(db)); } catch (e) { console.error('save failed:', e.message); } }, 300); };
+let t; const flush = () => { clearTimeout(t); try { const tmp = DB_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(db)); fs.renameSync(tmp, DB_FILE); } catch (e) { console.error('save failed:', e.message); } };
+const save = () => { clearTimeout(t); t = setTimeout(flush, 300); };
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { flush(); process.exit(0); });   // Render يرسل SIGTERM عند كل نشر: نحفظ فوراً
+const PERSISTENT = DIR !== __dirname;
 const id = () => crypto.randomBytes(8).toString('hex');
 const newKey = () => 'wps_' + crypto.randomBytes(20).toString('hex');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -37,7 +40,7 @@ function subInfo(u) {
   const now = Date.now(), used = db.logs.filter(l => l.uid === u.id && l.ok && l.at.startsWith(todayStr())).length;
   if (u.banned) return { active: false, type: 'banned', name: 'موقوف', reason: 'الحساب موقوف' };
   if (u.role === 'admin') return { active: true, type: 'admin', name: 'مدير', used, limit: 1e9 };
-  if (u.sub && new Date(u.sub.expires) > now) return { active: true, type: 'paid', name: db.plans.find(p => p.id === u.sub.plan)?.name || u.sub.plan, expires: u.sub.expires, used, limit: u.sub.daily, left: Math.ceil((new Date(u.sub.expires) - now) / DAY) };
+  if (u.sub && new Date(u.sub.expires) > now) return { active: true, type: 'paid', name: db.plans.find(p => p.id === u.sub.plan)?.name || u.sub.plan, expires: u.sub.expires, used, limit: u.ovr?.daily > 0 ? u.ovr.daily : u.sub.daily, left: Math.ceil((new Date(u.sub.expires) - now) / DAY) };
   const ts = u.trialSent || 0, tl = new Date(u.trialEnds) > now;
   if (!u.sub && tl && ts < TRIAL_MSGS) return { active: true, type: 'trial', name: 'تجريبي', expires: u.trialEnds, used: ts, limit: TRIAL_MSGS, left: Math.ceil((new Date(u.trialEnds) - now) / DAY) };
   return { active: false, type: 'expired', name: 'منتهي', used: ts, limit: TRIAL_MSGS, reason: u.sub ? 'انتهى اشتراكك. جدّد الاشتراك للمتابعة' : (ts >= TRIAL_MSGS ? 'استهلكت رسائل الفترة التجريبية' : 'انتهت الفترة التجريبية') + '. فعّل اشتراكاً للمتابعة' };
@@ -47,8 +50,14 @@ function checkAccess(u) {
   if (!i.active) throw fatal(i.reason);
   if (i.type === 'paid' && i.used >= i.limit) throw fatal('تم تجاوز الحد اليومي لباقتك');
 }
-const maxSessions = o => { const i = subInfo(o); if (i.type === 'admin') return 50; if (i.type === 'paid') return planOf(db.plans.find(p => p.id === o.sub.plan))?.sessions || 1; return 1; };
-const maxContacts = o => { const i = subInfo(o); return i.type === 'admin' ? 1e6 : i.type === 'paid' ? 20000 : 1000; };
+const maxSessions = o => { const i = subInfo(o); if (i.type === 'admin') return 50; if (o.ovr?.sessions > 0) return o.ovr.sessions; if (i.type === 'paid') return planOf(db.plans.find(p => p.id === o.sub.plan))?.sessions || 1; return 1; };
+const maxContacts = o => { const i = subInfo(o); if (i.type === 'admin') return 1e6; if (o.ovr?.contacts > 0) return o.ovr.contacts; return i.type === 'paid' ? 20000 : 1000; };
+/* الصلاحيات: مميزات الباقة + تجاوزات المدير لكل مشترك */
+const FEATS = { api: 'الربط البرمجي (API)', otp: 'رموز التحقق OTP', campaigns: 'الحملات الجماعية', ai: 'الذكاء الاصطناعي', auto: 'الردود الآلية', extract: 'استخراج البيانات', subs: 'الحسابات الفرعية', webhook: 'Webhook' };
+const allFeats = () => Object.fromEntries(Object.keys(FEATS).map(k => [k, true]));
+const permsOf = o => { if (o.role === 'admin') return allFeats(); const i = subInfo(o); const p = i.type === 'paid' ? db.plans.find(p => p.id === o.sub.plan) : null; return { ...allFeats(), ...(p?.features || {}), ...(o.perms || {}) }; };
+const can = (o, f) => !!permsOf(o)[f];
+const need = f => (req, res, next) => can(req.owner, f) ? next() : res.status(403).json({ error: 'هذه الميزة غير متاحة في باقتك: ' + FEATS[f] });
 const usageOf = u => { const m = monthStr(); if (!u.usage || u.usage.m !== m) u.usage = { m, msgs: 0, otp: 0 }; return u.usage; };
 
 /* ---------- الذكاء الاصطناعي (OpenRouter) ---------- */
@@ -70,7 +79,7 @@ const aiRewrite = (o, text, strength = 50) => aiChat(o.ai, [
 const wr = sid => (wa[sid] ||= { status: 'idle', qr: null, sock: null, phone: null, contacts: new Map() });
 const lastReply = {}, convo = {};
 function fireWebhook(o, payload) {
-  const w = o.webhook; if (!w?.url) return;
+  const w = o.webhook; if (!w?.url || !can(o, 'webhook')) return;
   fetch(w.url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Webhook-Secret': w.secret || '' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(8000) }).catch(() => {});
 }
 async function onIncoming(rec, sock, m) {
@@ -83,11 +92,11 @@ async function onIncoming(rec, sock, m) {
   const now = Date.now(); if (now - (lastReply[jid] || 0) < 3000) return; lastReply[jid] = now;
   let reply = null;
   const low = text.trim().toLowerCase();
-  for (const r of db.autoreplies) {
+  for (const r of can(o, 'auto') ? db.autoreplies : []) {
     if (r.uid !== o.id || !r.active || (r.sid && r.sid !== rec.id)) continue;
     if (r.keywords.some(k => r.match === 'exact' ? low === k.toLowerCase() : low.includes(k.toLowerCase()))) { reply = r.reply.replace(/\{name\}/g, m.pushName || ''); break; }
   }
-  if (!reply && o.bot?.enabled && o.ai?.key && (!o.bot.sid || o.bot.sid === rec.id)) {
+  if (!reply && o.bot?.enabled && o.ai?.key && can(o, 'ai') && (!o.bot.sid || o.bot.sid === rec.id)) {
     const h = (convo[jid] ||= []); h.push({ role: 'user', content: text }); if (h.length > 8) h.splice(0, h.length - 8);
     try { reply = await aiChat(o.ai, [{ role: 'system', content: o.bot.prompt || 'أنت مساعد خدمة عملاء ودود. أجب باختصار وبنفس لغة العميل.' }, ...h]); h.push({ role: 'assistant', content: reply }); }
     catch (e) { console.error('bot:', e.message); }
@@ -177,7 +186,7 @@ async function runCampaign(c) {
     const o = db.users.find(u => u.id === c.uid), by = db.users.find(u => u.id === c.by) || o;
     while (c.status === 'running' && c.idx < c.recipients.length) {
       const r = c.recipients[c.idx]; let msg = fill(pickMsg(c), r);
-      if (c.ai && o.ai?.key) { try { msg = await aiRewrite(o, msg, o.ai.strength ?? 50); } catch {} }
+      if (c.ai && o.ai?.key && can(o, 'ai')) { try { msg = await aiRewrite(o, msg, o.ai.strength ?? 50); } catch {} }
       try { await sendWA(o, by, r.phone, msg, { type: 'campaign', sid: c.sid }); c.sent++; }
       catch (e) { if (e.fatal) { c.status = 'paused'; c.err = e.message; save(); break; } c.failed++; c.err = e.message; }
       c.idx++; save();
@@ -213,21 +222,44 @@ const auth = (req, res, next) => {
   }
 };
 const mainOnly = (req, res, next) => req.user.parent ? res.status(403).json({ error: 'غير متاح للحسابات الفرعية' }) : next();
-const pub = u => { const o = ownerOf(u) || u; return { id: u.id, name: u.name, email: u.email, phone: u.phone || '', role: u.role, isSub: !!u.parent, apiKey: u.apiKey, wallet: u.parent ? 0 : Math.round(u.wallet || 0), sub: subInfo(o), limits: u.limits || null }; };
+const apiGate = (req, res, next) => (!req.headers['x-api-key'] || can(req.owner, 'api')) ? next() : res.status(403).json({ error: 'الربط البرمجي (API) غير متاح في باقتك' });
+const pub = u => { const o = ownerOf(u) || u; return { id: u.id, name: u.name, email: u.email, phone: u.phone || '', role: u.role, isSub: !!u.parent, apiKey: u.apiKey, wallet: u.parent ? 0 : Math.round(u.wallet || 0), sub: subInfo(o), perms: permsOf(o), limits: u.limits || null }; };
 const tok = u => jwt.sign({ id: u.id }, SECRET, { expiresIn: '30d' });
 
 app.post('/api/auth/register', wrap(async (req, res) => {
-  const { name, email, password } = req.body;
+  const { name, email, password } = req.body, phone = norm(req.body.phone);
   if (!name || !email || !password || password.length < 6) throw new Error('أكمل البيانات (كلمة المرور 6 أحرف على الأقل)');
-  if (db.users.find(u => u.email === email.toLowerCase())) throw new Error('البريد مسجل مسبقاً');
-  const u = { id: id(), name, email: email.toLowerCase(), pass: await bcrypt.hash(password, 10), role: (ADMIN_EMAIL ? email.toLowerCase() === ADMIN_EMAIL : !db.users.length) ? 'admin' : 'user', trialEnds: new Date(Date.now() + TRIAL_DAYS * DAY).toISOString(), trialSent: 0, apiKey: newKey(), at: new Date().toISOString(), wallet: 0 };
+  if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('البريد الإلكتروني غير صالح');
+  if (db.users.find(u => u.email === email.trim().toLowerCase())) throw new Error('البريد مسجل مسبقاً');
+  const u = { id: id(), name: String(name).trim().slice(0, 80), email: email.trim().toLowerCase(), phone: phone ? '+' + phone : '', pass: await bcrypt.hash(password, 10), role: (ADMIN_EMAIL ? email.trim().toLowerCase() === ADMIN_EMAIL : !db.users.length) ? 'admin' : 'user', trialEnds: new Date(Date.now() + TRIAL_DAYS * DAY).toISOString(), trialSent: 0, apiKey: newKey(), at: new Date().toISOString(), wallet: 0 };
   db.users.push(u); save(); res.json({ token: tok(u), user: pub(u) });
 }));
 app.post('/api/auth/login', wrap(async (req, res) => {
-  const u = db.users.find(u => u.email === (req.body.email || '').toLowerCase());
+  const u = db.users.find(u => u.email === (req.body.email || '').trim().toLowerCase());
   if (!u || !(await bcrypt.compare(req.body.password || '', u.pass))) throw new Error('بيانات الدخول غير صحيحة');
+  if (req.body.kind === 'sub' && !u.parent) throw new Error('هذا حساب رئيسي. اختر تبويب "الحساب الرئيسي"');
+  if (req.body.kind === 'main' && u.parent) throw new Error('هذا حساب فرعي. اختر تبويب "حساب فرعي"');
   if (u.disabled) throw new Error('الحساب الفرعي موقوف');
   res.json({ token: tok(u), user: pub(u) });
+}));
+const resets = {};
+app.post('/api/auth/forgot', wrap(async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase(), u = db.users.find(x => x.email === email), msg = 'إذا كان الحساب موجوداً ومسجّلاً برقم هاتف فسيصله رمز عبر واتساب خلال لحظات. إن لم يصلك، تواصل مع الدعم.';
+  if (resets[email] && Date.now() - resets[email].at < 60e3) throw new Error('انتظر دقيقة قبل طلب رمز جديد');
+  if (u && u.phone) {
+    resets[email] = { code: String(crypto.randomInt(100000, 999999)), exp: Date.now() + 10 * 60e3, tries: 0, at: Date.now() };
+    let rec; for (const a of db.users.filter(x => x.role === 'admin')) { rec = db.sessions.find(s => s.uid === a.id && wa[s.id]?.status === 'connected'); if (rec) break; }
+    if (rec) wa[rec.id].sock.sendMessage(jidOf(u.phone), { text: `🔐 رمز استعادة كلمة المرور: ${resets[email].code}\nصالح لمدة 10 دقائق. لا تشاركه مع أحد.` }).catch(() => {});
+  }
+  res.json({ ok: true, message: msg });
+}));
+app.post('/api/auth/reset', wrap(async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase(), r = resets[email], u = db.users.find(x => x.email === email);
+  if (!r || !u || r.exp < Date.now()) throw new Error('الرمز غير صالح أو منتهي');
+  if (++r.tries > 5) { delete resets[email]; throw new Error('محاولات كثيرة. اطلب رمزاً جديداً'); }
+  if (String(req.body.code) !== r.code) throw new Error('الرمز غير صحيح');
+  if (!req.body.password || req.body.password.length < 6) throw new Error('كلمة المرور 6 أحرف على الأقل');
+  u.pass = await bcrypt.hash(req.body.password, 10); delete resets[email]; save(); res.json({ token: tok(u), user: pub(u) });
 }));
 app.get('/api/me', auth, (req, res) => res.json(pub(req.user)));
 app.post('/api/key/regen', auth, (req, res) => { req.user.apiKey = newKey(); save(); res.json({ apiKey: req.user.apiKey }); });
@@ -253,12 +285,12 @@ app.post('/api/settings', auth, wrap(async (req, res) => {
     if (typeof b.notifyPhone === 'string') u.notifyPhone = b.notifyPhone.slice(0, 30);
     if (b.ai) { o.ai ||= {}; if (typeof b.ai.model === 'string') o.ai.model = b.ai.model.trim(); if (b.ai.strength != null) o.ai.strength = Math.min(100, Math.max(0, +b.ai.strength || 0)); if (b.ai.key && !String(b.ai.key).startsWith('••••')) o.ai.key = String(b.ai.key).trim(); }
     if (b.ban) { const x = b.ban; o.ban = { delayMin: Math.max(1, +x.delayMin || BAN.delayMin), delayMax: Math.max(+x.delayMin || 1, +x.delayMax || BAN.delayMax), batch: Math.max(0, +x.batch || 0), batchPause: Math.max(0, +x.batchPause || 0) }; }
-    if (b.webhook) { const w = b.webhook; if (w.url && badUrl(w.url)) throw new Error('رابط Webhook غير صالح (يجب أن يكون http/https عاماً)'); o.webhook = { url: (w.url || '').trim(), secret: (w.secret || '').slice(0, 100) }; }
-    if (b.bot) o.bot = { enabled: !!b.bot.enabled, prompt: String(b.bot.prompt || '').slice(0, 2000), sid: b.bot.sid || '' };
+    if (b.webhook) { if (!can(o, 'webhook')) throw new Error('Webhook غير متاح في باقتك'); const w = b.webhook; if (w.url && badUrl(w.url)) throw new Error('رابط Webhook غير صالح (يجب أن يكون http/https عاماً)'); o.webhook = { url: (w.url || '').trim(), secret: (w.secret || '').slice(0, 100) }; }
+    if (b.bot && can(o, 'ai')) o.bot = { enabled: !!b.bot.enabled, prompt: String(b.bot.prompt || '').slice(0, 2000), sid: b.bot.sid || '' };
   }
   save(); res.json({ ok: true });
 }));
-app.post('/api/ai/test', auth, wrap(async (req, res) => { const t0 = Date.now(); const r = await aiChat(req.owner.ai, [{ role: 'user', content: 'قل: تم الاتصال' }], 0); res.json({ ok: true, reply: r.slice(0, 100), ms: Date.now() - t0 }); }));
+app.post('/api/ai/test', auth, need('ai'), wrap(async (req, res) => { const t0 = Date.now(); const r = await aiChat(req.owner.ai, [{ role: 'user', content: 'قل: تم الاتصال' }], 0); res.json({ ok: true, reply: r.slice(0, 100), ms: Date.now() - t0 }); }));
 
 /* ---------- الجلسات (واتساب) ---------- */
 const sessView = r => { const s = wa[r.id] || {}; return { id: r.id, name: r.name, isDefault: !!r.isDefault, at: r.at, status: s.status || 'idle', qr: s.qr || null, phone: s.phone || r.phone || null, sent: r.sent || 0, failed: r.failed || 0, lastAt: r.lastAt || null }; };
@@ -283,11 +315,11 @@ app.delete('/api/sessions/:sid', auth, mainOnly, wrap(async (req, res) => {
 }));
 
 /* ---------- الإرسال ---------- */
-app.post(['/api/send', '/api/messages/send'], auth, wrap(async (req, res) => {
+app.post(['/api/send', '/api/messages/send'], auth, apiGate, wrap(async (req, res) => {
   const to = req.body.to || req.body.phone || req.body.number, message = req.body.message || req.body.text; if (!to || !message) throw new Error('to (أو phone) و message مطلوبان');
   const l = await sendWA(req.owner, req.user, to, message, { sid: req.body.session }); res.json({ success: true, id: l.id });
 }));
-app.post('/api/otp/send', auth, wrap(async (req, res) => {
+app.post('/api/otp/send', auth, need('otp'), apiGate, wrap(async (req, res) => {
   const to = req.body.to || req.body.phone, { message } = req.body; if (!to) throw new Error('to مطلوب');
   const code = String(crypto.randomInt(100000, 999999));
   const tpl = message || (db.templates.find(t => t.uid === req.owner.id && t.isDefault)?.body) || 'رمز التحقق الخاص بك: {OTP} هذا الرمز سينتهي خلال 5 دقائق.';
@@ -295,7 +327,7 @@ app.post('/api/otp/send', auth, wrap(async (req, res) => {
   otps[req.owner.id + ':' + norm(to)] = { code, exp: Date.now() + 5 * 60e3 };
   await sendWA(req.owner, req.user, to, tpl.replace(/\{OTP\}/g, code), { type: 'otp', sid: req.body.session }); res.json({ success: true, expires_in: 300 });
 }));
-app.post('/api/otp/verify', auth, (req, res) => {
+app.post('/api/otp/verify', auth, need('otp'), apiGate, (req, res) => {
   const k = req.owner.id + ':' + norm(req.body.to || req.body.phone || req.body.number), o = otps[k];
   if (!o || o.exp < Date.now()) return res.json({ valid: false, reason: 'expired' });
   if (o.code !== String(req.body.code)) return res.json({ valid: false, reason: 'wrong_code' });
@@ -324,7 +356,7 @@ app.delete('/api/contacts', auth, (req, res) => { db.contacts = db.contacts.filt
 
 /* ---------- الحملات ---------- */
 const campView = c => { const { recipients, messages, ...r } = c; return { ...r, total: recipients.length, msgCount: messages.length }; };
-app.post('/api/campaigns', auth, wrap(async (req, res) => {
+app.post('/api/campaigns', auth, need('campaigns'), wrap(async (req, res) => {
   const b = req.body, o = req.owner, bs = { ...BAN, ...(o.ban || {}) };
   const messages = (Array.isArray(b.messages) ? b.messages : [b.message]).map(m => String(m || '').trim()).filter(Boolean).slice(0, 50);
   const seen = new Set(), recipients = [];
@@ -357,12 +389,12 @@ app.get('/api/stats', auth, (req, res) => {
 
 /* ---------- استخراج البيانات ---------- */
 const liveSock = (req, sid) => { const r = mySess(req, sid), s = wa[r.id]; if (!s?.sock || s.status !== 'connected') throw new Error('الجلسة غير متصلة'); return s; };
-app.get('/api/extract/:sid/groups', auth, wrap(async (req, res) => {
+app.get('/api/extract/:sid/groups', auth, need('extract'), wrap(async (req, res) => {
   const s = liveSock(req, req.params.sid), g = await s.sock.groupFetchAllParticipating();
   res.json(Object.values(g).map(x => ({ id: x.id, name: x.subject || '', size: x.participants?.length || 0, members: (x.participants || []).map(p => { const j = p.phoneNumber || p.id || ''; return { id: j, phone: /@s\.whatsapp\.net$/.test(j) ? digits(j.split('@')[0]) : '', admin: !!p.admin }; }) })));
 }));
-app.get('/api/extract/:sid/contacts', auth, wrap(async (req, res) => { const s = liveSock(req, req.params.sid); res.json([...s.contacts].map(([j, n]) => ({ phone: digits(j.split('@')[0]), name: n }))); }));
-app.post('/api/extract/convert', auth, wrap(async (req, res) => {
+app.get('/api/extract/:sid/contacts', auth, need('extract'), wrap(async (req, res) => { const s = liveSock(req, req.params.sid); res.json([...s.contacts].map(([j, n]) => ({ phone: digits(j.split('@')[0]), name: n }))); }));
+app.post('/api/extract/convert', auth, need('extract'), wrap(async (req, res) => {
   const s = req.body.sid ? liveSock(req, req.body.sid) : null;
   const out = (req.body.ids || []).slice(0, 5000).map(raw => {
     const j = String(raw).trim(); if (!j) return null;
@@ -375,7 +407,7 @@ app.post('/api/extract/convert', auth, wrap(async (req, res) => {
 
 /* ---------- الردود الآلية ---------- */
 app.get('/api/autoreplies', auth, (req, res) => res.json(db.autoreplies.filter(r => r.uid === req.owner.id)));
-app.post('/api/autoreplies', auth, mainOnly, wrap(async (req, res) => {
+app.post('/api/autoreplies', auth, mainOnly, need('auto'), wrap(async (req, res) => {
   const keywords = String(req.body.keywords || '').split(/[,،\n]/).map(x => x.trim()).filter(Boolean), reply = String(req.body.reply || '').trim();
   if (!keywords.length || !reply) throw new Error('الكلمات المفتاحية والرد مطلوبان');
   const r = { id: id(), uid: req.owner.id, keywords, reply: reply.slice(0, 2000), match: req.body.match === 'exact' ? 'exact' : 'contains', sid: req.body.sid || '', active: true };
@@ -387,7 +419,7 @@ app.delete('/api/autoreplies/:id', auth, mainOnly, (req, res) => { db.autoreplie
 /* ---------- الحسابات الفرعية ---------- */
 const subView = u => { const x = usageOf(u); return { id: u.id, name: u.name, email: u.email, apiKey: u.apiKey, disabled: !!u.disabled, limits: u.limits || {}, usage: { msgs: x.msgs, otp: x.otp }, at: u.at }; };
 app.get('/api/subs', auth, mainOnly, (req, res) => res.json(db.users.filter(u => u.parent === req.user.id).map(subView)));
-app.post('/api/subs', auth, mainOnly, wrap(async (req, res) => {
+app.post('/api/subs', auth, mainOnly, need('subs'), wrap(async (req, res) => {
   const { name, email, password, msgs, otp } = req.body;
   if (!name || !email || !password || password.length < 6) throw new Error('الاسم والبريد وكلمة مرور (6 أحرف) مطلوبة');
   if (db.users.find(u => u.email === email.toLowerCase())) throw new Error('البريد مسجل مسبقاً');
@@ -422,8 +454,9 @@ const adm = (req, res, next) => req.user.role === 'admin' ? next() : res.status(
 const A = '/api/admin', connected = () => Object.values(wa).filter(s => s.status === 'connected').length;
 const userWa = uid => db.sessions.some(s => s.uid === uid && wa[s.id]?.status === 'connected') ? 'connected' : 'idle';
 const mains = () => db.users.filter(u => !u.parent);
-app.get(A + '/overview', auth, adm, (req, res) => { const t = todayStr(); res.json({ users: mains().length, paid: mains().filter(u => subInfo(u).type === 'paid').length, trial: mains().filter(u => subInfo(u).type === 'trial').length, expired: mains().filter(u => subInfo(u).type === 'expired').length, msgsToday: db.logs.filter(l => l.ok && l.at.startsWith(t)).length, msgsTotal: db.sessions.reduce((a, s) => a + (s.sent || 0) + (s.failed || 0), 0), pending: db.requests.filter(r => r.status === 'pending').length, online: connected() }); });
-app.get(A + '/users', auth, adm, (req, res) => res.json(mains().map(u => ({ ...pub(u), banned: !!u.banned, at: u.at, wa: userWa(u.id), total: db.sessions.filter(s => s.uid === u.id).reduce((a, s) => a + (s.sent || 0) + (s.failed || 0), 0) })).reverse()));
+app.get(A + '/overview', auth, adm, (req, res) => { const t = todayStr(); res.json({ users: mains().length, paid: mains().filter(u => subInfo(u).type === 'paid').length, trial: mains().filter(u => subInfo(u).type === 'trial').length, expired: mains().filter(u => subInfo(u).type === 'expired').length, msgsToday: db.logs.filter(l => l.ok && l.at.startsWith(t)).length, msgsTotal: db.sessions.reduce((a, s) => a + (s.sent || 0) + (s.failed || 0), 0), pending: db.requests.filter(r => r.status === 'pending').length, online: connected(), persistent: PERSISTENT, sessions: db.sessions.length }); });
+app.get(A + '/users', auth, adm, (req, res) => res.json(mains().map(u => ({ ...pub(u), banned: !!u.banned, at: u.at, wa: userWa(u.id), total: db.sessions.filter(s => s.uid === u.id).reduce((a, s) => a + (s.sent || 0) + (s.failed || 0), 0), userPerms: u.perms || {}, ovr: u.ovr || {}, nSessions: db.sessions.filter(s => s.uid === u.id).length, nContacts: db.contacts.filter(c => c.uid === u.id).length, nSubs: db.users.filter(x => x.parent === u.id).length, plan: u.sub?.plan || null })).reverse()));
+app.get(A + '/feats', auth, adm, (req, res) => res.json(FEATS));
 app.post(A + '/users/:id/activate', auth, adm, wrap(async (req, res) => {
   const u = db.users.find(u => u.id === req.params.id); if (!u) throw new Error('غير موجود');
   if (String(req.body.planId).startsWith('wallet:')) {          // شحن محفظة
@@ -451,7 +484,38 @@ app.delete(A + '/users/:id', auth, adm, wrap(async (req, res) => {
 }));
 app.get(A + '/requests', auth, adm, (req, res) => res.json(db.requests.slice().reverse()));
 app.post(A + '/requests/:id/reject', auth, adm, (req, res) => { const r = db.requests.find(r => r.id === req.params.id); if (r) r.status = 'rejected'; save(); res.json({ ok: true }); });
-app.post(A + '/plans', auth, adm, wrap(async (req, res) => { db.plans = (req.body.plans || []).map(p => ({ id: p.id || id(), name: String(p.name), price: String(p.price), days: +p.days || 30, daily: +p.daily || 100, sessions: +p.sessions || db.plans.find(x => x.id === p.id)?.sessions || ({ basic: 1, pro: 3, biz: 10 }[p.id] || 1) })); save(); res.json(db.plans.map(planOf)); }));
+app.post(A + '/plans', auth, adm, wrap(async (req, res) => {
+  db.plans = (req.body.plans || []).map(p => ({ id: p.id || id(), name: String(p.name).slice(0, 40), price: String(p.price).slice(0, 30), days: +p.days || 30, daily: +p.daily || 100, sessions: +p.sessions || 1,
+    features: Object.fromEntries(Object.keys(FEATS).map(k => [k, p.features ? p.features[k] !== false : true])) }));
+  save(); res.json(db.plans.map(planOf));
+}));
+app.post(A + '/users', auth, adm, wrap(async (req, res) => {
+  const { name, email, password, planId } = req.body, phone = norm(req.body.phone);
+  if (!name || !email || !password || password.length < 6) throw new Error('الاسم والبريد وكلمة مرور (6 أحرف) مطلوبة');
+  if (db.users.find(u => u.email === String(email).trim().toLowerCase())) throw new Error('البريد مسجل مسبقاً');
+  const u = { id: id(), name: String(name).slice(0, 80), email: String(email).trim().toLowerCase(), phone: phone ? '+' + phone : '', pass: await bcrypt.hash(password, 10), role: req.body.role === 'admin' ? 'admin' : 'user', trialEnds: new Date(Date.now() + TRIAL_DAYS * DAY).toISOString(), trialSent: 0, apiKey: newKey(), at: new Date().toISOString(), wallet: 0 };
+  const p = db.plans.find(p => p.id === planId); if (p) u.sub = { plan: p.id, daily: p.daily, expires: new Date(Date.now() + (+req.body.days || p.days) * DAY).toISOString() };
+  db.users.push(u); save(); res.json(pub(u));
+}));
+app.post(A + '/users/:id/settings', auth, adm, wrap(async (req, res) => {
+  const u = db.users.find(u => u.id === req.params.id && !u.parent); if (!u) throw new Error('غير موجود');
+  const b = req.body;
+  if (typeof b.name === 'string' && b.name.trim()) u.name = b.name.trim().slice(0, 80);
+  if (typeof b.phone === 'string') { const p = norm(b.phone); u.phone = p ? '+' + p : ''; }
+  if (b.perms) { u.perms = {}; for (const k of Object.keys(FEATS)) if (b.perms[k] === true || b.perms[k] === false) u.perms[k] = b.perms[k]; }
+  if (b.ovr) u.ovr = { daily: Math.max(0, +b.ovr.daily || 0), sessions: Math.max(0, +b.ovr.sessions || 0), contacts: Math.max(0, +b.ovr.contacts || 0) };
+  if (b.expires) { const d = new Date(b.expires); if (isNaN(d)) throw new Error('تاريخ غير صالح'); if (!u.sub) u.sub = { plan: b.plan || db.plans[0]?.id || 'none', daily: db.plans.find(p => p.id === b.plan)?.daily || 100, expires: d.toISOString() }; else u.sub.expires = d.toISOString(); }
+  save(); res.json(pub(u));
+}));
+app.post(A + '/users/:id/password', auth, adm, wrap(async (req, res) => { const u = db.users.find(u => u.id === req.params.id); if (!u || !req.body.password || req.body.password.length < 6) throw new Error('كلمة مرور (6 أحرف على الأقل) مطلوبة'); u.pass = await bcrypt.hash(req.body.password, 10); save(); res.json({ ok: true }); }));
+app.post(A + '/users/:id/role', auth, adm, wrap(async (req, res) => {
+  const u = db.users.find(u => u.id === req.params.id && !u.parent); if (!u) throw new Error('غير موجود');
+  const role = req.body.role === 'admin' ? 'admin' : 'user';
+  if (u.id === req.user.id && role !== 'admin') throw new Error('لا يمكنك إزالة صلاحية المدير عن نفسك');
+  u.role = role; save(); res.json(pub(u));
+}));
+app.get(A + '/sessions', auth, adm, (req, res) => res.json(db.sessions.map(s => ({ ...sessView(s), owner: db.users.find(u => u.id === s.uid)?.email || '—' }))));
+app.post(A + '/sessions/:sid/stop', auth, adm, wrap(async (req, res) => { const r = db.sessions.find(s => s.id === req.params.sid); if (!r) throw new Error('غير موجودة'); await stopWA(r.id, false); res.json({ ok: true }); }));
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'المسار غير موجود' }));
 app.use((err, req, res, next) => { console.error(err); res.status(err.status || 500).json({ error: err.status === 400 ? 'بيانات غير صالحة' : 'خطأ في الخادم: ' + err.message }); });

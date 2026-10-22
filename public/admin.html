@@ -4,37 +4,80 @@
 <title>لوحة الإدارة — WP Sender</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css"></head><body>
-<aside id="side"></aside>
-<div id="top"><button id="mb" class="btn g s" onclick="side.classList.toggle('open')">☰</button><h2 id="ttl"></h2><button class="btn g s" onclick="dark()">🌙</button></div>
+<aside id="side"></aside><div id="ov" onclick="side.classList.remove('open')"></div>
+<div id="top"><button id="mb" class="ib nb" onclick="side.classList.toggle('open')"></button><h2 id="ttl"></h2><button id="md" class="ib" onclick="dark()"></button></div>
 <div id="main"></div>
 <script src="/common.js"></script>
 <script>
-let PLANS=[],USERS=[];
-const MENU=[['ov','chart','نظرة عامة'],['us','users','المشتركون'],['rq','bell','طلبات الاشتراك'],['pl','card','الباقات والأسعار']];
-const st=u=>{const s=u.sub;return`<span class="badge ${{paid:'',trial:'b',admin:'b',expired:'y',banned:'x'}[s.type]}">${s.name}</span>`};
-const act=f=>async()=>{try{await f()}catch(e){toast(e.message,false)}};
-(async()=>{try{const me=await api('/me');if(me.role!='admin')throw 0}catch{location.href='/';return}
- side.innerHTML=`<div class="logo"><b>WP</b>ADMIN</div>`+MENU.map(m=>`<a data-v="${m[0]}" onclick="go('${m[0]}')">${ic(m[1])}${m[2]}</a>`).join('')+`<a href="/">${ic('home')}لوحة المستخدم</a>`;
- PLANS=(await api('/plans')).plans;go('ov')})();
+let PLANS=[],USERS=[],FEATS={},UF='all',UQ='';
+const MENU=[['ov','chart','نظرة عامة'],['us','users','المشتركون'],['rq','bell','طلبات الاشتراك والشحن'],['pl','card','الباقات والصلاحيات'],['ss','qr','الجلسات']];
+const A=f=>async(...a)=>{try{await f(...a)}catch(e){toast(e.message,false)}};
+const modal=h=>{const m=document.createElement('div');m.className='modal';m.innerHTML=`<div class="card" style="max-width:560px;max-height:92vh;overflow:auto">${h}</div>`;m.onclick=e=>{if(e.target==m)m.remove()};document.body.appendChild(m);return m};
+const closeM=el=>el.closest('.modal').remove();
+const ST={paid:['b','فعّال'],trial:['y','تجريبي'],admin:['','مدير'],expired:['x','منتهي'],banned:['x','موقوف']};
+const stB=u=>{const s=u.sub,t=ST[s.type]||['',s.name];return`<span class="badge ${t[0]}">${s.type=='paid'?esc(s.name):t[1]}</span>`};
+const sel=(id,opts,cur)=>`<select id="${id}">${opts.map(o=>`<option value="${esc(o[0])}" ${o[0]==cur?'selected':''}>${esc(o[1])}</option>`).join('')}</select>`;
+const planOpts=()=>PLANS.map(p=>[p.id,`${p.name} — ${p.price}`]);
+window.addEventListener('load',A(async()=>{try{const me=await api('/me');if(me.role!='admin')throw 0}catch{location.href='/';return}
+ mb.innerHTML=ic('menu');md.innerHTML=ic('moon');
+ side.innerHTML=`<div class="sb-h"><div class="logo"><b>WP</b>ADMIN</div><button class="ib x" onclick="side.classList.remove('open')">${ic('x')}</button></div><nav class="sb-n">`+MENU.map(m=>`<a data-v="${m[0]}" onclick="go('${m[0]}')">${ic(m[1])}${m[2]}</a>`).join('')+`<a href="/">${ic('home')}لوحة المستخدم</a></nav>`;
+ PLANS=(await api('/plans')).plans;FEATS=await api('/admin/feats');go('ov')}));
 const V={};
 async function go(v){side.classList.remove('open');document.querySelectorAll('#side a[data-v]').forEach(a=>a.classList.toggle('on',a.dataset.v==v));ttl.textContent=MENU.find(m=>m[0]==v)[2];try{await V[v]()}catch(e){toast(e.message,false)}}
 
-V.ov=async()=>{const o=await api('/admin/overview');const S=[['users','المشتركون',o.users],['check','اشتراكات فعّالة',o.paid],['bolt','في التجربة',o.trial],['lock','منتهية',o.expired],['send','رسائل اليوم',o.msgsToday],['chart','إجمالي الرسائل',o.msgsTotal],['bell','طلبات معلقة',o.pending],['qr','واتساب متصل',o.online]];
- main.innerHTML=`<div class="grid g4">${S.map(s=>`<div class="card stat"><div class="ic">${ic(s[0])}</div><div><b>${s[2]}</b><span>${s[1]}</span></div></div>`).join('')}</div>`};
+/* ---- نظرة عامة ---- */
+V.ov=async()=>{const o=await api('/admin/overview');const S=[['users','المشتركون',o.users],['check','اشتراكات فعّالة',o.paid],['bolt','في التجربة',o.trial],['lock','منتهية',o.expired],['send','رسائل اليوم',o.msgsToday],['chart','إجمالي الرسائل',o.msgsTotal],['bell','طلبات معلقة',o.pending],['qr','جلسات متصلة',o.online+' / '+o.sessions]];
+ main.innerHTML=(o.persistent?'':`<div class="ban x"><span>⚠️ التخزين غير دائم: الحسابات وجلسات واتساب ستضيع عند كل إعادة نشر. أضف Disk في Render (Mount Path: /data) واضبط DATA_DIR=/data.</span></div>`)+`<div class="grid g4">${S.map(s=>`<div class="card stat"><div class="ic">${ic(s[0])}</div><div><b>${s[2]}</b><span>${s[1]}</span></div></div>`).join('')}</div>`};
 
-V.us=async()=>{USERS=await api('/admin/users');draw('')};
-function draw(q){main.innerHTML=`<div class="card"><input placeholder="بحث بالاسم أو البريد..." value="${q}" oninput="draw(this.value);document.querySelector('input').focus()" style="margin:0"></div><div class="card tw"><table><tr><th>المستخدم</th><th>الباقة</th><th>الاستهلاك</th><th>واتساب</th><th>إجراءات</th></tr>`+USERS.filter(u=>(u.name+u.email).toLowerCase().includes(q.toLowerCase())).map(u=>row([`<b>${u.name}</b><br><small style="color:var(--m)">${u.email}</small>`,st(u)+(u.sub.expires?`<br><small>حتى ${day(u.sub.expires)}</small>`:''),`${u.total} رسالة`,`<span class="badge ${u.wa=='connected'?'':'x'}">${u.wa=='connected'?'متصل':'—'}</span>`,
- u.role=='admin'?'—':`<button class="btn s" onclick="activate('${u.id}')">تفعيل</button> <button class="btn g s" onclick="uact('${u.id}','trial','تجديد التجربة؟')">تجربة</button> <button class="btn g s" onclick="uact('${u.id}','deactivate','إلغاء الاشتراك؟')">إلغاء</button> <button class="btn g s" onclick="uact('${u.id}','ban')">${u.banned?'فك الحظر':'حظر'}</button> <button class="btn r s" onclick="del('${u.id}')">حذف</button>`])).join('')+`</table></div>`}
-function activate(id){const m=document.createElement('div');m.className='modal';m.innerHTML=`<div class="card"><h3>تفعيل اشتراك</h3><label>الباقة</label><select id="ap">${PLANS.map(p=>`<option value="${p.id}" data-d="${p.days}">${p.name} — ${p.price}</option>`).join('')}</select><label>المدة (أيام)</label><input id="ad" type="number" value="${PLANS[0]?.days||30}"><button class="btn w" id="ak">تفعيل</button><br><br><button class="btn g w" onclick="this.closest('.modal').remove()">إلغاء</button></div>`;document.body.appendChild(m);
- ap.onchange=()=>ad.value=ap.selectedOptions[0].dataset.d;
- ak.onclick=act(async()=>{await api(`/admin/users/${id}/activate`,'POST',{planId:ap.value,days:+ad.value});m.remove();toast('تم التفعيل ✓');go('us')})}
-const uact=(id,a,c)=>(!c||confirm(c))&&act(async()=>{await api(`/admin/users/${id}/${a}`,'POST',{});toast('تم ✓');go('us')})();
-const del=id=>confirm('حذف المستخدم نهائياً؟')&&act(async()=>{await api('/admin/users/'+id,'DELETE');go('us')})();
+/* ---- المشتركون ---- */
+V.us=async()=>{USERS=await api('/admin/users');draw()};
+function draw(){const q=UQ.toLowerCase(),l=USERS.filter(u=>(UF=='all'||u.sub.type==UF||(UF=='banned'&&u.banned))&&(!q||(u.name+u.email+(u.phone||'')).toLowerCase().includes(q)));
+ main.innerHTML=`<div class="card"><div class="sh"><input id="uq" placeholder="بحث بالاسم أو البريد أو الهاتف..." value="${esc(UQ)}" style="margin:0;flex:1;min-width:180px" oninput="UQ=this.value;draw();uq.focus();uq.setSelectionRange(UQ.length,UQ.length)"><select style="margin:0;width:auto" onchange="UF=this.value;draw()">${[['all','الكل'],['paid','فعّال'],['trial','تجريبي'],['expired','منتهي'],['banned','موقوف']].map(x=>`<option value="${x[0]}" ${UF==x[0]?'selected':''}>${x[1]}</option>`).join('')}</select><button class="btn s" onclick="newUser()">${ic('plus')} إضافة مشترك</button></div></div>
+ <div class="card tw"><table><tr><th>المستخدم</th><th>الباقة</th><th>الاستهلاك</th><th>واتساب</th><th>المحفظة</th><th></th></tr>${l.map(u=>row([`<b>${esc(u.name)}</b>${u.role=='admin'?' <span class="badge b">مدير</span>':''}<br><small dir="ltr">${esc(u.email)}</small>`,stB(u)+(u.sub.expires?`<br><small>${day(u.sub.expires)}</small>`:''),`${u.sub.used}/${u.sub.type=='admin'?'∞':u.sub.limit}<br><small>${u.total} إجمالي</small>`,`<span class="badge ${u.wa=='connected'?'':'x'}">${u.wa=='connected'?'متصل':'غير متصل'}</span>`,iqd(u.wallet),`<button class="btn s" onclick="manage('${u.id}')">إدارة</button>`])).join('')||'<tr><td colspan="6">لا يوجد مشتركون</td></tr>'}</table></div>`}
+window.newUser=()=>{const m=modal(`<h3>إضافة مشترك</h3><label>الاسم *</label><input id="nn"><label>البريد *</label><input id="ne" dir="ltr"><label>رقم الهاتف</label><input id="np" class="phone" dir="ltr" placeholder="+9647XXXXXXXXX"><label>كلمة المرور *</label><input id="nw" dir="ltr" placeholder="6 أحرف على الأقل"><div class="grid g2"><div><label>الباقة</label>${sel('npl',[['','بدون (تجربة)'],...planOpts()],'')}</div><div><label>المدة (أيام)</label><input id="nd" type="number" placeholder="افتراضي"></div></div><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="nadm" style="width:auto;margin:0"> مدير</label><div class="row2"><button class="btn w" id="nsv">إنشاء</button><button class="btn g w" onclick="closeM(this)">إلغاء</button></div>`);
+ m.querySelector('#nsv').onclick=A(async()=>{await api('/admin/users','POST',{name:nn.value,email:ne.value,phone:np.value,password:nw.value,planId:npl.value||undefined,days:+nd.value||undefined,role:nadm.checked?'admin':'user'});m.remove();toast('تم الإنشاء ✓');V.us()})};
+window.manage=id=>{const u=USERS.find(x=>x.id==id),ov=u.ovr||{},up=u.userPerms||{};
+ const m=modal(`<div class="sh"><h3 style="margin:0">${esc(u.name)}</h3>${stB(u)}</div><small dir="ltr" style="color:var(--m)">${esc(u.email)} • ${esc(u.phone||'بدون هاتف')}</small>
+ <p class="hint" style="margin-top:8px">جلسات: ${u.nSessions} • جهات اتصال: ${u.nContacts} • حسابات فرعية: ${u.nSubs} • مسجّل: ${day(u.at)}</p>
+ <h4 style="margin:14px 0 6px">🎟️ الاشتراك</h4><div class="grid g2"><div><label>الباقة</label>${sel('mp',planOpts(),u.plan||PLANS[0]?.id)}</div><div><label>المدة (أيام)</label><input id="md2" type="number" value="30"></div></div>
+ <div class="row2"><button class="btn s" id="mact">تفعيل / تجديد</button><button class="btn g s" id="mtr">تجديد التجربة</button><button class="btn g s" id="mdeact">إلغاء الاشتراك</button></div>
+ <label>تاريخ الانتهاء المخصص (اختياري)</label><div style="display:flex;gap:8px"><input type="date" id="mex" style="margin:0"><button class="btn g s" id="mexb">تعيين</button></div>
+ <h4 style="margin:16px 0 6px">📊 حدود مخصصة <small style="color:var(--m)">(0 = حسب الباقة)</small></h4><div class="grid" style="grid-template-columns:repeat(3,1fr)"><div><label>رسائل/يوم</label><input id="od" type="number" min="0" value="${ov.daily||0}"></div><div><label>الجلسات</label><input id="os" type="number" min="0" value="${ov.sessions||0}"></div><div><label>جهات الاتصال</label><input id="oc" type="number" min="0" value="${ov.contacts||0}"></div></div>
+ <h4 style="margin:12px 0 6px">🔐 الصلاحيات</h4>${Object.entries(FEATS).map(([k,n])=>`<div class="sh" style="margin:4px 0"><span>${esc(n)}</span><select data-p="${k}" style="width:auto;margin:0"><option value="">حسب الباقة (${u.perms&&u.perms[k]===false?'ممنوع':'مسموح'})</option><option value="1" ${up[k]===true?'selected':''}>مسموح</option><option value="0" ${up[k]===false?'selected':''}>ممنوع</option></select></div>`).join('')}
+ <div class="row2"><button class="btn w" id="msv">حفظ الحدود والصلاحيات</button></div>
+ <h4 style="margin:16px 0 6px">💰 المحفظة <small style="color:var(--m)">الرصيد: ${iqd(u.wallet)}</small></h4><div style="display:flex;gap:8px"><input id="mw" type="number" placeholder="المبلغ بالدينار (سالب للخصم)" style="margin:0"><button class="btn g s" id="mwb">تطبيق</button></div>
+ <h4 style="margin:16px 0 6px">🛡️ الحساب</h4><div style="display:flex;gap:8px"><input id="mpw" dir="ltr" placeholder="كلمة مرور جديدة" style="margin:0"><button class="btn g s" id="mpwb">تغيير</button></div>
+ <div class="row2"><button class="btn g s" id="mrole">${u.role=='admin'?'إزالة صلاحية المدير':'ترقية إلى مدير'}</button>${u.role=='admin'?'':`<button class="btn g s" id="mban">${u.banned?'رفع الإيقاف':'إيقاف الحساب'}</button><button class="btn r s" id="mdel">حذف</button>`}<button class="btn g s" onclick="closeM(this)">إغلاق</button></div>`);
+ const $=s=>m.querySelector(s),done=msg=>{toast(msg+' ✓');m.remove();V.us()};
+ $('#mact').onclick=A(async()=>{await api(`/admin/users/${id}/activate`,'POST',{planId:mp.value,days:+md2.value||undefined});done('تم التفعيل')});
+ $('#mtr').onclick=A(async()=>{await api(`/admin/users/${id}/trial`,'POST',{});done('تم تجديد التجربة')});
+ $('#mdeact').onclick=A(async()=>{if(confirm('إلغاء الاشتراك؟')){await api(`/admin/users/${id}/deactivate`,'POST',{});done('تم الإلغاء')}});
+ $('#mexb').onclick=A(async()=>{if(!mex.value)throw new Error('اختر تاريخاً');await api(`/admin/users/${id}/settings`,'POST',{expires:mex.value+'T23:59:59',plan:mp.value});done('تم تعيين التاريخ')});
+ $('#msv').onclick=A(async()=>{const perms={};m.querySelectorAll('[data-p]').forEach(s=>{if(s.value!=='')perms[s.dataset.p]=s.value=='1'});await api(`/admin/users/${id}/settings`,'POST',{perms,ovr:{daily:+od.value,sessions:+os.value,contacts:+oc.value}});done('تم الحفظ')});
+ $('#mwb').onclick=A(async()=>{await api(`/admin/users/${id}/credit`,'POST',{amount:+mw.value});done('تم تعديل الرصيد')});
+ $('#mpwb').onclick=A(async()=>{await api(`/admin/users/${id}/password`,'POST',{password:mpw.value});done('تم تغيير كلمة المرور')});
+ $('#mrole').onclick=A(async()=>{await api(`/admin/users/${id}/role`,'POST',{role:u.role=='admin'?'user':'admin'});done('تم')});
+ if($('#mban'))$('#mban').onclick=A(async()=>{await api(`/admin/users/${id}/ban`,'POST',{});done('تم')});
+ if($('#mdel'))$('#mdel').onclick=A(async()=>{if(confirm('حذف المستخدم وكل بياناته نهائياً؟')){await api('/admin/users/'+id,'DELETE');done('تم الحذف')}})};
 
-V.rq=async()=>{const l=await api('/admin/requests'),us=await api('/admin/users'),pn=id=>String(id).startsWith('wallet:')?'شحن محفظة '+iqd(String(id).slice(7)):(PLANS.find(p=>p.id==id)?.name||id);
- main.innerHTML=`<div class="card tw"><table><tr><th>المستخدم</th><th>الباقة</th><th>ملاحظة</th><th>التاريخ</th><th>الحالة</th><th></th></tr>${l.map(r=>row([`${r.name}<br><small>${r.email}</small>`,pn(r.planId),r.note,fmt(r.at),`<span class="badge ${{pending:'y',done:'',rejected:'x'}[r.status]}">${{pending:'معلق',done:'مفعّل',rejected:'مرفوض'}[r.status]}</span>`,r.status=='pending'?`<button class="btn s" onclick="act(async()=>{await api('/admin/users/${r.uid}/activate','POST',{planId:'${r.planId}'});toast('تم التفعيل ✓');go('rq')})()">تفعيل</button> <button class="btn g s" onclick="act(async()=>{await api('/admin/requests/${r.id}/reject','POST',{});go('rq')})()">رفض</button>`:''])).join('')||'<tr><td>لا توجد طلبات</td></tr>'}</table></div>`};
+/* ---- الطلبات ---- */
+V.rq=async()=>{const l=await api('/admin/requests'),pn=id=>String(id).startsWith('wallet:')?'شحن محفظة '+iqd(String(id).slice(7)):(PLANS.find(p=>p.id==id)?.name||id);
+ main.innerHTML=`<div class="card tw"><table><tr><th>المستخدم</th><th>الطلب</th><th>ملاحظة</th><th>التاريخ</th><th>الحالة</th><th></th></tr>${l.map(r=>row([`${esc(r.name)}<br><small>${esc(r.email)}</small>`,esc(pn(r.planId)),esc(r.note),fmt(r.at),`<span class="badge ${{pending:'y',done:'',rejected:'x'}[r.status]}">${{pending:'معلق',done:'منفّذ',rejected:'مرفوض'}[r.status]}</span>`,r.status=='pending'?`<button class="btn s" onclick="rqOk('${r.uid}','${esc(r.planId)}')">تفعيل</button> <button class="btn g s" onclick="rqNo('${r.id}')">رفض</button>`:''])).join('')||'<tr><td colspan="6">لا توجد طلبات</td></tr>'}</table></div>`};
+window.rqOk=A(async(uid,pid)=>{await api(`/admin/users/${uid}/activate`,'POST',{planId:pid});toast('تم التنفيذ ✓');V.rq()});
+window.rqNo=A(async id=>{await api(`/admin/requests/${id}/reject`,'POST',{});V.rq()});
 
-V.pl=()=>{main.innerHTML=`<div class="card"><h3>الباقات (تظهر في صفحة الأسعار)</h3><div id="pr"></div><button class="btn g s" onclick="PLANS.push({id:'p'+Date.now(),name:'باقة جديدة',price:'0 د.ع',days:30,daily:100});V.pl()">+ إضافة باقة</button> <button class="btn" onclick="savePl()">حفظ التغييرات</button></div>`;
- pr.innerHTML=PLANS.map((p,i)=>`<div class="grid g4" style="align-items:end"><div><label>الاسم</label><input data-k="name" value="${p.name}"></div><div><label>السعر</label><input data-k="price" value="${p.price}"></div><div><label>المدة (يوم)</label><input data-k="days" type="number" value="${p.days}"></div><div><label>رسائل/يوم</label><input data-k="daily" type="number" value="${p.daily}"></div><div><button class="btn r s" style="margin-bottom:14px" onclick="PLANS.splice(${i},1);V.pl()">حذف</button></div></div>`).join('')};
-async function savePl(){const rows=[...document.querySelectorAll('#pr .grid')];PLANS=rows.map((r,i)=>{const o={id:PLANS[i].id};r.querySelectorAll('input').forEach(x=>o[x.dataset.k]=x.value);return o});PLANS=await api('/admin/plans','POST',{plans:PLANS});toast('تم الحفظ ✓')}
+/* ---- الباقات والصلاحيات ---- */
+const planCard=(p,i)=>`<div class="card" data-i="${i}"><div class="sh"><h3 style="margin:0">${esc(p.name)}</h3><button class="btn r s" onclick="plDel(${i})">${ic('trash')} حذف</button></div>
+ <div class="grid g2"><div><label>الاسم</label><input data-k="name" value="${esc(p.name)}"></div><div><label>السعر (دينار عراقي)</label><input data-k="price" value="${esc(p.price)}" placeholder="15,000 د.ع"></div><div><label>المدة (يوم)</label><input data-k="days" type="number" value="${p.days}"></div><div><label>رسائل/يوم</label><input data-k="daily" type="number" value="${p.daily}"></div><div><label>عدد الجلسات</label><input data-k="sessions" type="number" min="1" value="${p.sessions||1}"></div></div>
+ <label style="margin-top:8px">المميزات المتاحة في الباقة</label><div class="chips">${Object.entries(FEATS).map(([k,n])=>`<label class="chk"><input type="checkbox" data-f="${k}" ${!p.features||p.features[k]!==false?'checked':''}> ${esc(n)}</label>`).join('')}</div></div>`;
+V.pl=()=>{main.innerHTML=`<div class="card"><div class="sh"><div><h3 style="margin:0">الباقات والأسعار</h3><p class="hint" style="margin:4px 0 0">تظهر في صفحة الأسعار. المميزات غير المحددة تُغلق لمشتركي الباقة (ويمكن تجاوزها لكل مشترك من «إدارة»). فترة التجربة والمدير: كل المميزات مفتوحة.</p></div><div><button class="btn g s" onclick="plAdd()">${ic('plus')} باقة</button> <button class="btn s" onclick="plSave()">حفظ التغييرات</button></div></div></div><div id="pr"></div>`;pr.innerHTML=PLANS.map(planCard).join('')};
+const plRead=()=>[...document.querySelectorAll('#pr [data-i]')].map((c,i)=>{const o={id:PLANS[i].id,features:{}};c.querySelectorAll('[data-k]').forEach(x=>o[x.dataset.k]=x.value);c.querySelectorAll('[data-f]').forEach(x=>o.features[x.dataset.f]=x.checked);return o});
+window.plAdd=()=>{PLANS=plRead();PLANS.push({id:'p'+Date.now(),name:'باقة جديدة',price:'0 د.ع',days:30,daily:100,sessions:1,features:{}});V.pl()};
+window.plDel=i=>{if(!confirm('حذف الباقة؟ (المشتركون الحاليون يحتفظون باشتراكهم حتى ينتهي)'))return;PLANS=plRead();PLANS.splice(i,1);V.pl()};
+window.plSave=A(async()=>{PLANS=await api('/admin/plans','POST',{plans:plRead()});toast('تم الحفظ ✓');V.pl()});
+
+/* ---- الجلسات ---- */
+V.ss=async()=>{const l=await api('/admin/sessions');
+ main.innerHTML=`<div class="card tw"><table><tr><th>الجلسة</th><th>المالك</th><th>الرقم</th><th>الحالة</th><th>رسائل</th><th></th></tr>${l.map(s=>row([esc(s.name),`<small dir="ltr">${esc(s.owner)}</small>`,`<span dir="ltr">${s.phone?'+'+esc(s.phone):'—'}</span>`,`<span class="badge ${s.status=='connected'?'':s.status=='idle'?'x':'y'}">${{connected:'متصل',qr:'بانتظار QR',connecting:'يتصل',idle:'غير متصل'}[s.status]}</span>`,`${s.sent} / ${s.failed} فشل`,s.status=='idle'?'':`<button class="btn g s" onclick="ssStop('${s.id}')">إيقاف</button>`])).join('')||'<tr><td colspan="6">لا توجد جلسات</td></tr>'}</table></div>`};
+window.ssStop=A(async id=>{await api(`/admin/sessions/${id}/stop`,'POST',{});V.ss()});
 </script></body></html>
