@@ -7,7 +7,7 @@
 </head><body>
 
 <!-- ===== الصفحة الرئيسية ===== -->
-<div id="land">
+<div id="land" class="hide">
  <header class="nav"><div class="logo"><b>WP</b>SENDER</div>
   <nav><a href="#f">المميزات</a><a href="#h">كيف يعمل</a><a href="#p">الأسعار</a></nav>
   <div class="a"><button class="btn o s" onclick="openAuth('l')">دخول</button><button class="btn s" onclick="openAuth('r')">ابدأ مجاناً</button></div></header>
@@ -38,8 +38,7 @@ X-API-Key: wps_7b5db2a8...
 
 <!-- ===== صفحة الدخول ===== -->
 <div id="auth" class="auth hide">
- <button class="back" onclick="closeAuth()">الرجوع للرئيسية</button>
- <div class="alogo"><svg viewBox="0 0 48 48" width="64" height="64" fill="none" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="24" r="18"/><path d="M14 32l4-14 6 10 6-10 4 14"/><path d="M8 38l-2 5 6-2"/></svg></div>
+  <div class="alogo"><svg viewBox="0 0 48 48" width="64" height="64" fill="none" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="24" r="18"/><path d="M14 32l4-14 6 10 6-10 4 14"/><path d="M8 38l-2 5 6-2"/></svg></div>
  <h1 id="at">تسجيل الدخول</h1><p class="as" id="as">أهلاً بك مجدداً في منصة أتمتة الواتساب</p>
  <div class="acard">
   <div id="atabs" class="seg2"><button id="tm" class="on" onclick="setKind('main')">👤 الحساب الرئيسي</button><button id="ts" onclick="setKind('sub')">👥 حساب فرعي</button></div>
@@ -72,7 +71,7 @@ window.addEventListener('load',async()=>{try{PL=await api('/plans')}catch{}
  tdays.textContent=PL.trial.days;tmsgs.textContent=PL.trial.msgs;
  feats.innerHTML=FE.map(f=>`<div class="card ft"><div class="ic">${ic(f[0])}</div><h4>${f[1]}</h4><p>${f[2]}</p></div>`).join('');
  plans.innerHTML=`<div class="card plan"><h3>تجربة مجانية</h3><div class="pr">0</div><ul><li>${PL.trial.days} أيام</li><li>${PL.trial.msgs} رسالة فقط</li><li>كل الأدوات متاحة</li></ul><button class="btn o w" onclick="openAuth('r')">ابدأ مجاناً</button></div>`+PL.plans.map((p,i)=>`<div class="card plan ${i==1?'hot':''}">${i==1?'<span class="badge" style="position:absolute;top:-11px;right:50%;transform:translateX(50%)">الأكثر طلباً</span>':''}<h3>${esc(p.name)}</h3><div class="pr">${p.price}</div><ul><li>${p.days} يوم</li><li>${p.daily.toLocaleString('ar-EG')} رسالة يومياً</li><li>API وOTP وحملات</li></ul><button class="btn w ${i==1?'':'o'}" onclick="openAuth('r')">اشترك الآن</button></div>`).join('');
- if(localStorage.t)boot()});
+ if(localStorage.t)boot();else openAuth('l')});
 
 let KIND='main',FSTEP=0;
 function closeAuth(){auth.classList.add('hide');land.classList.remove('hide')}
