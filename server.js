@@ -13,15 +13,18 @@ const TRIAL_DAYS = +process.env.TRIAL_DAYS || 2, TRIAL_MSGS = +process.env.TRIAL
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').toLowerCase(), SUPPORT_WA = process.env.SUPPORT_WA || '';
 const DAY = 864e5, LOG_DAYS = 3;
 let db = { users: [], logs: [], templates: [], contacts: [], campaigns: [], requests: [], sessions: [], autoreplies: [], txns: [], plans: [
-  { id: 'basic', name: 'الأساسية', price: '10$', days: 30, daily: 300, sessions: 1 },
-  { id: 'pro', name: 'الاحترافية', price: '25$', days: 30, daily: 1500, sessions: 3 },
-  { id: 'biz', name: 'الأعمال', price: '60$', days: 30, daily: 10000, sessions: 10 }] };
+  { id: 'basic', name: 'الأساسية', price: '15,000 د.ع', days: 30, daily: 300, sessions: 1 },
+  { id: 'pro', name: 'الاحترافية', price: '37,500 د.ع', days: 30, daily: 1500, sessions: 3 },
+  { id: 'biz', name: 'الأعمال', price: '90,000 د.ع', days: 30, daily: 10000, sessions: 10 }] };
 try { db = { ...db, ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) }; } catch {}
+for (const p of db.plans) if (/\$/.test(String(p.price))) p.price = (Math.round(parseFloat(String(p.price).replace(/[^\d.]/g, '')) * 1500 / 500) * 500).toLocaleString('en-US') + ' د.ع';   // ترحيل الأسعار من الدولار إلى الدينار
 let t; const save = () => { clearTimeout(t); t = setTimeout(() => { try { fs.writeFileSync(DB_FILE, JSON.stringify(db)); } catch (e) { console.error('save failed:', e.message); } }, 300); };
 const id = () => crypto.randomBytes(8).toString('hex');
 const newKey = () => 'wps_' + crypto.randomBytes(20).toString('hex');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const digits = n => String(n || '').replace(/\D/g, '');
+// تطبيع الأرقام للعراق: 0770... أو 770... → 964770... ؛ الأرقام الدولية الصريحة (+ أو 00 أو 964) تبقى كما هي
+const norm = n => { const raw = String(n || '').trim(); let d = digits(raw); if (!d) return ''; if (raw.startsWith('+')) return d; if (d.startsWith('00')) return d.slice(2); if (d.startsWith('964')) return d; if (d.startsWith('0')) return '964' + d.replace(/^0+/, ''); if (d.length === 10 && d[0] === '7') return '964' + d; return d; };
 const otps = {};          // `${uid}:${phone}` -> {code, exp}
 const wa = {};            // sessionId -> runtime {sock,status,qr,phone,starting,stopped,contacts}
 const fatal = m => Object.assign(new Error(m), { fatal: true });
@@ -130,7 +133,7 @@ async function stopWA(sid, logout) {
 function notifyDown(rec, msg) {
   const o = db.users.find(u => u.id === rec.uid); if (!o?.notifyPhone) return;
   const other = db.sessions.find(x => x.uid === o.id && x.id !== rec.id && wa[x.id]?.status === 'connected'); if (!other) return;
-  wa[other.id].sock.sendMessage(digits(o.notifyPhone) + '@s.whatsapp.net', { text: `⚠️ WP Sender: ${msg} (${rec.name}${rec.phone ? ' • ' + rec.phone : ''})` }).catch(() => {});
+  wa[other.id].sock.sendMessage(norm(o.notifyPhone) + '@s.whatsapp.net', { text: `⚠️ WP Sender: ${msg} (${rec.name}${rec.phone ? ' • ' + rec.phone : ''})` }).catch(() => {});
 }
 function pickSession(o, sid) {
   const mine = db.sessions.filter(s => s.uid === o.id);
@@ -141,9 +144,9 @@ function pickSession(o, sid) {
   if (!rec) throw fatal('واتساب غير مربوط. اربط رقماً عبر QR أولاً');
   return rec;
 }
-const jidOf = n => digits(n) + '@s.whatsapp.net';
+const jidOf = n => norm(n) + '@s.whatsapp.net';
 function logSend(o, by, rec, to, text, type, ok, err) {
-  const log = { id: id(), uid: o.id, by: by.id, sid: rec.id, sname: rec.name, to: digits(to), text, type, at: new Date().toISOString(), ok, err };
+  const log = { id: id(), uid: o.id, by: by.id, sid: rec.id, sname: rec.name, to: norm(to), text, type, at: new Date().toISOString(), ok, err };
   db.logs.push(log); if (db.logs.length > 20000) db.logs.shift();
   if (ok) { rec.sent = (rec.sent || 0) + 1; rec.lastAt = log.at; if (subInfo(o).type === 'trial') o.trialSent = (o.trialSent || 0) + 1; } else rec.failed = (rec.failed || 0) + 1;
   save(); return log;
@@ -210,7 +213,7 @@ const auth = (req, res, next) => {
   }
 };
 const mainOnly = (req, res, next) => req.user.parent ? res.status(403).json({ error: 'غير متاح للحسابات الفرعية' }) : next();
-const pub = u => { const o = ownerOf(u) || u; return { id: u.id, name: u.name, email: u.email, phone: u.phone || '', role: u.role, isSub: !!u.parent, apiKey: u.apiKey, wallet: u.parent ? 0 : +(u.wallet || 0).toFixed(2), sub: subInfo(o), limits: u.limits || null }; };
+const pub = u => { const o = ownerOf(u) || u; return { id: u.id, name: u.name, email: u.email, phone: u.phone || '', role: u.role, isSub: !!u.parent, apiKey: u.apiKey, wallet: u.parent ? 0 : Math.round(u.wallet || 0), sub: subInfo(o), limits: u.limits || null }; };
 const tok = u => jwt.sign({ id: u.id }, SECRET, { expiresIn: '30d' });
 
 app.post('/api/auth/register', wrap(async (req, res) => {
@@ -289,11 +292,11 @@ app.post('/api/otp/send', auth, wrap(async (req, res) => {
   const code = String(crypto.randomInt(100000, 999999));
   const tpl = message || (db.templates.find(t => t.uid === req.owner.id && t.isDefault)?.body) || 'رمز التحقق الخاص بك: {OTP} هذا الرمز سينتهي خلال 5 دقائق.';
   if (!tpl.includes('{OTP}')) throw new Error('يجب أن تتضمن الرسالة {OTP}');
-  otps[req.owner.id + ':' + digits(to)] = { code, exp: Date.now() + 5 * 60e3 };
+  otps[req.owner.id + ':' + norm(to)] = { code, exp: Date.now() + 5 * 60e3 };
   await sendWA(req.owner, req.user, to, tpl.replace(/\{OTP\}/g, code), { type: 'otp', sid: req.body.session }); res.json({ success: true, expires_in: 300 });
 }));
 app.post('/api/otp/verify', auth, (req, res) => {
-  const k = req.owner.id + ':' + digits(req.body.to || req.body.phone), o = otps[k];
+  const k = req.owner.id + ':' + norm(req.body.to || req.body.phone || req.body.number), o = otps[k];
   if (!o || o.exp < Date.now()) return res.json({ valid: false, reason: 'expired' });
   if (o.code !== String(req.body.code)) return res.json({ valid: false, reason: 'wrong_code' });
   delete otps[k]; res.json({ valid: true });
@@ -309,7 +312,7 @@ app.post('/api/otp/template', auth, mainOnly, wrap(async (req, res) => {
 /* ---------- جهات الاتصال ---------- */
 app.get('/api/contacts', auth, (req, res) => res.json({ max: maxContacts(req.owner), items: db.contacts.filter(x => x.uid === req.owner.id) }));
 app.post('/api/contacts', auth, wrap(async (req, res) => {
-  const items = (Array.isArray(req.body.items) ? req.body.items : [req.body]).map(x => ({ name: String(x.name || '').slice(0, 80), phone: digits(x.phone), group: String(x.group || '').slice(0, 60) })).filter(x => x.phone.length > 7);
+  const items = (Array.isArray(req.body.items) ? req.body.items : [req.body]).map(x => ({ name: String(x.name || '').slice(0, 80), phone: norm(x.phone), group: String(x.group || '').slice(0, 60) })).filter(x => x.phone.length > 7);
   if (!items.length) throw new Error('لا توجد أرقام صالحة');
   const mine = db.contacts.filter(c => c.uid === req.owner.id), have = new Set(mine.map(c => c.phone)), lim = maxContacts(req.owner);
   let added = 0, skipped = 0;
@@ -325,7 +328,7 @@ app.post('/api/campaigns', auth, wrap(async (req, res) => {
   const b = req.body, o = req.owner, bs = { ...BAN, ...(o.ban || {}) };
   const messages = (Array.isArray(b.messages) ? b.messages : [b.message]).map(m => String(m || '').trim()).filter(Boolean).slice(0, 50);
   const seen = new Set(), recipients = [];
-  for (const r of (b.recipients || (b.numbers || []).map(n => ({ phone: n })))) { const p = digits(r.phone); if (p.length > 7 && !seen.has(p)) { seen.add(p); recipients.push({ phone: p, name: String(r.name || '').slice(0, 80) }); } }
+  for (const r of (b.recipients || (b.numbers || []).map(n => ({ phone: n })))) { const p = norm(r.phone); if (p.length > 7 && !seen.has(p)) { seen.add(p); recipients.push({ phone: p, name: String(r.name || '').slice(0, 80) }); } }
   if (!messages.length || !recipients.length) throw new Error('الرسالة والأرقام مطلوبة');
   if (b.session) pickSession(o, b.session); else checkAccess(o);
   const sched = b.scheduledAt ? new Date(b.scheduledAt) : null; if (sched && isNaN(sched)) throw new Error('وقت الجدولة غير صالح');
@@ -399,17 +402,17 @@ app.delete('/api/subs/:id', auth, mainOnly, wrap(async (req, res) => { const u =
 /* ---------- الباقات والمحفظة ---------- */
 app.get('/api/plans', (req, res) => res.json({ plans: db.plans.map(planOf), support: SUPPORT_WA, trial: { days: TRIAL_DAYS, msgs: TRIAL_MSGS } }));
 app.post('/api/request', auth, mainOnly, (req, res) => { db.requests.push({ id: id(), uid: req.user.id, name: req.user.name, email: req.user.email, planId: req.body.planId, note: (req.body.note || '').slice(0, 300), status: 'pending', at: new Date().toISOString() }); save(); res.json({ ok: true }); });
-const priceNum = p => parseFloat(String(p.price).replace(/[^\d.]/g, '')) || 0;
-app.get('/api/wallet', auth, mainOnly, (req, res) => res.json({ balance: +(req.user.wallet || 0).toFixed(2), txns: db.txns.filter(x => x.uid === req.user.id).slice(-50).reverse(), pending: db.requests.filter(r => r.uid === req.user.id && r.status === 'pending' && String(r.planId).startsWith('wallet:')).length }));
+const priceNum = p => parseFloat(String(p.price).replace(/[^\d.]/g, '')) || 0;   // الأسعار بالدينار العراقي
+app.get('/api/wallet', auth, mainOnly, (req, res) => res.json({ balance: Math.round(req.user.wallet || 0), txns: db.txns.filter(x => x.uid === req.user.id).slice(-50).reverse(), pending: db.requests.filter(r => r.uid === req.user.id && r.status === 'pending' && String(r.planId).startsWith('wallet:')).length }));
 app.post('/api/wallet/topup', auth, mainOnly, wrap(async (req, res) => {
-  const amt = +req.body.amount; if (!(amt >= 1 && amt <= 100000)) throw new Error('أدخل مبلغاً صحيحاً');
+  const amt = +req.body.amount; if (!(amt >= 1000 && amt <= 1e9)) throw new Error('أدخل مبلغاً صحيحاً (1,000 د.ع على الأقل)');
   db.requests.push({ id: id(), uid: req.user.id, name: req.user.name, email: req.user.email, planId: 'wallet:' + amt, note: String(req.body.note || '').slice(0, 300), status: 'pending', at: new Date().toISOString() }); save(); res.json({ ok: true });
 }));
 app.post('/api/wallet/buy', auth, mainOnly, wrap(async (req, res) => {
   const u = req.user, p = db.plans.find(p => p.id === req.body.planId); if (!p) throw new Error('الباقة غير موجودة');
-  const yearly = req.body.period === 'yearly', cost = +(priceNum(p) * (yearly ? 12 * 0.8 : 1)).toFixed(2), days = p.days * (yearly ? 12 : 1);
-  if (!cost) throw new Error('سعر الباقة غير محدد'); if ((u.wallet || 0) < cost) throw new Error('الرصيد غير كافٍ. تحتاج ' + cost + '$ ورصيدك ' + (u.wallet || 0).toFixed(2) + '$');
-  u.wallet = +((u.wallet || 0) - cost).toFixed(2); const base = u.sub && new Date(u.sub.expires) > Date.now() ? new Date(u.sub.expires).getTime() : Date.now();
+  const yearly = req.body.period === 'yearly', cost = Math.round(priceNum(p) * (yearly ? 12 * 0.8 : 1)), days = p.days * (yearly ? 12 : 1);
+  if (!cost) throw new Error('سعر الباقة غير محدد'); if ((u.wallet || 0) < cost) throw new Error('الرصيد غير كافٍ. تحتاج ' + cost.toLocaleString('en-US') + ' د.ع ورصيدك ' + Math.round(u.wallet || 0).toLocaleString('en-US') + ' د.ع');
+  u.wallet = Math.round((u.wallet || 0) - cost); const base = u.sub && new Date(u.sub.expires) > Date.now() ? new Date(u.sub.expires).getTime() : Date.now();
   u.sub = { plan: p.id, daily: p.daily, expires: new Date(base + days * DAY).toISOString() };
   db.txns.push({ id: id(), uid: u.id, type: 'purchase', amount: -cost, note: p.name + (yearly ? ' (سنوي)' : ' (شهري)'), at: new Date().toISOString() }); save(); res.json(pub(u));
 }));
@@ -425,7 +428,7 @@ app.post(A + '/users/:id/activate', auth, adm, wrap(async (req, res) => {
   const u = db.users.find(u => u.id === req.params.id); if (!u) throw new Error('غير موجود');
   if (String(req.body.planId).startsWith('wallet:')) {          // شحن محفظة
     const amt = +String(req.body.planId).slice(7); if (!(amt > 0)) throw new Error('مبلغ غير صالح');
-    u.wallet = +((u.wallet || 0) + amt).toFixed(2); db.txns.push({ id: id(), uid: u.id, type: 'topup', amount: amt, note: 'شحن بواسطة الإدارة', at: new Date().toISOString() });
+    u.wallet = Math.round((u.wallet || 0) + amt); db.txns.push({ id: id(), uid: u.id, type: 'topup', amount: amt, note: 'شحن بواسطة الإدارة', at: new Date().toISOString() });
     db.requests.forEach(r => r.uid === u.id && r.planId === req.body.planId && r.status === 'pending' && (r.status = 'done')); save(); return res.json(pub(u));
   }
   const p = db.plans.find(p => p.id === req.body.planId); if (!p) throw new Error('غير موجود');
@@ -433,7 +436,7 @@ app.post(A + '/users/:id/activate', auth, adm, wrap(async (req, res) => {
   u.sub = { plan: p.id, daily: p.daily, expires: new Date(base + days * DAY).toISOString() };
   db.requests.forEach(r => r.uid === u.id && r.status === 'pending' && !String(r.planId).startsWith('wallet:') && (r.status = 'done')); save(); res.json(pub(u));
 }));
-app.post(A + '/users/:id/credit', auth, adm, wrap(async (req, res) => { const u = db.users.find(u => u.id === req.params.id), amt = +req.body.amount; if (!u || !amt) throw new Error('بيانات غير صالحة'); u.wallet = +((u.wallet || 0) + amt).toFixed(2); db.txns.push({ id: id(), uid: u.id, type: amt > 0 ? 'topup' : 'adjust', amount: amt, note: 'تعديل من الإدارة', at: new Date().toISOString() }); save(); res.json(pub(u)); }));
+app.post(A + '/users/:id/credit', auth, adm, wrap(async (req, res) => { const u = db.users.find(u => u.id === req.params.id), amt = +req.body.amount; if (!u || !amt) throw new Error('بيانات غير صالحة'); u.wallet = Math.round((u.wallet || 0) + amt); db.txns.push({ id: id(), uid: u.id, type: amt > 0 ? 'topup' : 'adjust', amount: amt, note: 'تعديل من الإدارة', at: new Date().toISOString() }); save(); res.json(pub(u)); }));
 app.post(A + '/users/:id/deactivate', auth, adm, (req, res) => { const u = db.users.find(u => u.id === req.params.id); if (u) { u.sub = { plan: 'none', daily: 0, expires: new Date(0).toISOString() }; save(); } res.json({ ok: true }); });
 app.post(A + '/users/:id/trial', auth, adm, (req, res) => { const u = db.users.find(u => u.id === req.params.id); if (u) { u.sub = null; u.trialSent = 0; u.trialEnds = new Date(Date.now() + (+req.body.days || TRIAL_DAYS) * DAY).toISOString(); save(); } res.json({ ok: true }); });
 app.post(A + '/users/:id/ban', auth, adm, (req, res) => { const u = db.users.find(u => u.id === req.params.id); if (u && u.role !== 'admin') { u.banned = !u.banned; save(); } res.json({ ok: true }); });

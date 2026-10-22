@@ -11,3 +11,13 @@ const row=a=>'<tr>'+a.map(x=>`<td>${x??''}</td>`).join('')+'</tr>';
 const sleepMs=ms=>new Promise(r=>setTimeout(r,ms));
 const dark=()=>{document.body.classList.toggle('dark');localStorage.d=document.body.classList.contains('dark')?1:''};
 if(localStorage.d)document.body.classList.add('dark');
+
+/* ===== العراق: العملة والأرقام ===== */
+const iqd=n=>Math.round(+n||0).toLocaleString('en-US')+' د.ع';
+const normPhone=v=>{const raw=String(v||'').trim();let d=raw.replace(/\D/g,'');if(!d)return'';if(raw.startsWith('+'))return d;if(d.startsWith('00'))return d.slice(2);if(d.startsWith('964'))return d;if(d.startsWith('0'))return'964'+d.replace(/^0+/,'');if(d.length==10&&d[0]=='7')return'964'+d;return d};
+const fixPhoneEl=el=>{let v=el.value;if(!v)return;if(v.startsWith('+')){if(/^\+9640+/.test(v))v=v.replace(/^\+9640+/,'+964');el.value=v;return}
+ const d=v.replace(/\D/g,'');if(!d){el.value='+964';return}el.value=d.startsWith('964')?'+'+d:d.startsWith('0')?'+964'+d.replace(/^0+/,''):'+964'+d};
+document.addEventListener('focusin',e=>{const t=e.target;if(t.matches&&t.matches('input.phone')&&!t.value)t.value='+964'});
+document.addEventListener('input',e=>{const t=e.target;if(t.matches&&t.matches('input.phone'))fixPhoneEl(t)});
+document.addEventListener('focusout',e=>{const t=e.target;if(!t.matches)return;if(t.matches('input.phone')&&t.value=='+964')t.value='';
+ if(t.matches('textarea.phones'))t.value=t.value.split('\n').map(l=>{const [p,...n]=l.split(/[,;\t]/);const d=normPhone(p);return d?'+'+d+(n.length?','+n.join(' ').trim():''):l.trim()}).filter(Boolean).join('\n')});
