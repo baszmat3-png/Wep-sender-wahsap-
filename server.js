@@ -280,8 +280,8 @@ app.delete('/api/sessions/:sid', auth, mainOnly, wrap(async (req, res) => {
 }));
 
 /* ---------- الإرسال ---------- */
-app.post('/api/send', auth, wrap(async (req, res) => {
-  const to = req.body.to || req.body.phone, message = req.body.message || req.body.text; if (!to || !message) throw new Error('to (أو phone) و message مطلوبان');
+app.post(['/api/send', '/api/messages/send'], auth, wrap(async (req, res) => {
+  const to = req.body.to || req.body.phone || req.body.number, message = req.body.message || req.body.text; if (!to || !message) throw new Error('to (أو phone) و message مطلوبان');
   const l = await sendWA(req.owner, req.user, to, message, { sid: req.body.session }); res.json({ success: true, id: l.id });
 }));
 app.post('/api/otp/send', auth, wrap(async (req, res) => {
