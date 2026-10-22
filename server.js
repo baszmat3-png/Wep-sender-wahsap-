@@ -205,6 +205,7 @@ setInterval(() => { const lim = Date.now() - LOG_DAYS * DAY; const n = db.logs.l
 const app = express();
 app.use(express.json({ limit: '8mb' }));
 app.get('/healthz', (req, res) => res.json({ ok: true, users: db.users.length, dir: DIR }));
+app.get(['/admin', '/admin/', '/panel', '/dashboard'], (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.use(express.static(path.join(__dirname, 'public')));
 const wrap = f => (req, res) => Promise.resolve(f(req, res)).catch(e => res.status(400).json({ error: e.message }));
 
