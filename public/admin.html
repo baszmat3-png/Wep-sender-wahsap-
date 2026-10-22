@@ -31,7 +31,7 @@ function activate(id){const m=document.createElement('div');m.className='modal';
 const uact=(id,a,c)=>(!c||confirm(c))&&act(async()=>{await api(`/admin/users/${id}/${a}`,'POST',{});toast('تم ✓');go('us')})();
 const del=id=>confirm('حذف المستخدم نهائياً؟')&&act(async()=>{await api('/admin/users/'+id,'DELETE');go('us')})();
 
-V.rq=async()=>{const l=await api('/admin/requests'),us=await api('/admin/users'),pn=id=>PLANS.find(p=>p.id==id)?.name||id;
+V.rq=async()=>{const l=await api('/admin/requests'),us=await api('/admin/users'),pn=id=>String(id).startsWith('wallet:')?'شحن محفظة '+String(id).slice(7)+'$':(PLANS.find(p=>p.id==id)?.name||id);
  main.innerHTML=`<div class="card tw"><table><tr><th>المستخدم</th><th>الباقة</th><th>ملاحظة</th><th>التاريخ</th><th>الحالة</th><th></th></tr>${l.map(r=>row([`${r.name}<br><small>${r.email}</small>`,pn(r.planId),r.note,fmt(r.at),`<span class="badge ${{pending:'y',done:'',rejected:'x'}[r.status]}">${{pending:'معلق',done:'مفعّل',rejected:'مرفوض'}[r.status]}</span>`,r.status=='pending'?`<button class="btn s" onclick="act(async()=>{await api('/admin/users/${r.uid}/activate','POST',{planId:'${r.planId}'});toast('تم التفعيل ✓');go('rq')})()">تفعيل</button> <button class="btn g s" onclick="act(async()=>{await api('/admin/requests/${r.id}/reject','POST',{});go('rq')})()">رفض</button>`:''])).join('')||'<tr><td>لا توجد طلبات</td></tr>'}</table></div>`};
 
 V.pl=()=>{main.innerHTML=`<div class="card"><h3>الباقات (تظهر في صفحة الأسعار)</h3><div id="pr"></div><button class="btn g s" onclick="PLANS.push({id:'p'+Date.now(),name:'باقة جديدة',price:'0$',days:30,daily:100});V.pl()">+ إضافة باقة</button> <button class="btn" onclick="savePl()">حفظ التغييرات</button></div>`;
