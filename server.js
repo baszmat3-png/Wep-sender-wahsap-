@@ -139,7 +139,13 @@ async function startWA(sid) {
     const sock = makeWASocket({ ...(version ? { version } : {}), auth: state, logger: pino({ level: 'silent' }), browser: ['WP Sender', 'Chrome', '1.0'], syncFullHistory: false });
     s.sock = sock; s.status = 'connecting';
     sock.ev.on('creds.update', saveCreds);
-    const addC = list => (list || []).forEach(c => { if (c.id && c.id.endsWith('@s.whatsapp.net')) s.contacts.set(c.id, c.name || c.notify || c.verifiedName || s.contacts.get(c.id) || ''); });
+    s.lid = s.lid || new Map();   // LID -> رقم الهاتف
+    const addC = list => (list || []).forEach(c => {
+      const pn = [c.id, c.phoneNumber, c.jid].find(x => /@s\.whatsapp\.net$/.test(x || '')), lid = [c.lid, c.id].find(x => /@lid$/.test(x || ''));
+      if (pn && lid) s.lid.set(lid, pn); else if (lid && c.phoneNumber) s.lid.set(lid, String(c.phoneNumber).includes('@') ? c.phoneNumber : digits(c.phoneNumber) + '@s.whatsapp.net');
+      if (pn) s.contacts.set(pn, c.name || c.notify || c.verifiedName || s.contacts.get(pn) || '');
+    });
+    sock.ev.on('lid-mapping.update', m => { try { for (const [l, p] of Object.entries(m || {})) s.lid.set(l, p); } catch {} });
     sock.ev.on('contacts.upsert', addC); sock.ev.on('contacts.update', addC);
     sock.ev.on('messaging-history.set', h => addC(h.contacts));
     sock.ev.on('messages.upsert', async ({ messages, type }) => { if (type !== 'notify') return; for (const m of messages) { try { await onIncoming(rec, sock, m); } catch (e) { console.error('incoming:', e.message); } } });
@@ -412,19 +418,34 @@ app.get('/api/stats', auth, (req, res) => {
 
 /* ---------- استخراج البيانات ---------- */
 const liveSock = (req, sid) => { const r = mySess(req, sid), s = wa[r.id]; if (!s?.sock || s.status !== 'connected') throw new Error('الجلسة غير متصلة'); return s; };
+const toPN = async (s, j) => {   // يحوّل أي معرّف (رقم/LID) إلى رقم هاتف إن أمكن
+  j = String(j || ''); if (!j) return '';
+  if (/@s\.whatsapp\.net$/.test(j)) return digits(j.split('@')[0].split(':')[0]);
+  const m = s.lid?.get(j) || s.lid?.get(j.split(':')[0] + '@lid'); if (m) return digits(String(m).split('@')[0].split(':')[0]);
+  try { const r = await s.sock?.signalRepository?.lidMapping?.getPNForLID?.(j); if (typeof r === 'string' && r) return digits(r.split('@')[0].split(':')[0]); } catch {}
+  return '';
+};
 app.get('/api/extract/:sid/groups', auth, need('extract'), wrap(async (req, res) => {
-  const s = liveSock(req, req.params.sid), g = await s.sock.groupFetchAllParticipating();
-  res.json(Object.values(g).map(x => ({ id: x.id, name: x.subject || '', size: x.participants?.length || 0, members: (x.participants || []).map(p => { const j = p.phoneNumber || p.id || ''; return { id: j, phone: /@s\.whatsapp\.net$/.test(j) ? digits(j.split('@')[0]) : '', admin: !!p.admin }; }) })));
+  const s = liveSock(req, req.params.sid); let g, err;
+  for (let i = 0; i < 3 && !g; i++) { try { g = await s.sock.groupFetchAllParticipating(); } catch (e) { err = e; await sleep(2500); } }
+  if (!g) throw new Error('تعذّر جلب المجموعات من واتساب (' + (err?.message || 'خطأ') + '). انتظر دقيقة وأعد المحاولة');
+  const out = [];
+  for (const x of Object.values(g)) {
+    const members = [];
+    for (const p of (x.participants || [])) {
+      const j = [p.phoneNumber, p.jid, p.id, p.lid].find(v => /@s\.whatsapp\.net$/.test(v || '')) || p.id || p.lid || '';
+      let phone = await toPN(s, j); if (!phone && p.lid) phone = await toPN(s, p.lid); if (!phone && p.phoneNumber) phone = digits(p.phoneNumber);
+      members.push({ id: j, phone, admin: !!p.admin });
+    }
+    out.push({ id: x.id, name: x.subject || '', size: members.length, hidden: members.filter(m => !m.phone).length, members });
+  }
+  res.json(out);
 }));
 app.get('/api/extract/:sid/contacts', auth, need('extract'), wrap(async (req, res) => { const s = liveSock(req, req.params.sid); res.json([...s.contacts].map(([j, n]) => ({ phone: digits(j.split('@')[0]), name: n }))); }));
 app.post('/api/extract/convert', auth, need('extract'), wrap(async (req, res) => {
   const s = req.body.sid ? liveSock(req, req.body.sid) : null;
-  const out = (req.body.ids || []).slice(0, 5000).map(raw => {
-    const j = String(raw).trim(); if (!j) return null;
-    if (/@s\.whatsapp\.net$/.test(j) || /^\+?\d{6,}$/.test(j)) return { id: j, phone: digits(j.split('@')[0].split(':')[0]) };
-    let p = null; try { const m = s?.sock?.signalRepository?.lidMapping; const r = m?.getPNForLID?.(j); if (typeof r === 'string') p = digits(r.split('@')[0].split(':')[0]); } catch {}
-    return { id: j, phone: p };
-  }).filter(Boolean);
+  const out = [];
+  for (const raw of (req.body.ids || []).slice(0, 5000)) { const j = String(raw).trim(); if (!j) continue; out.push({ id: j, phone: /^\+?\d{6,}$/.test(j) ? digits(j) : (s ? await toPN(s, j) : (/@s\.whatsapp\.net$/.test(j) ? digits(j.split('@')[0].split(':')[0]) : '')) || null }); }
   res.json(out);
 }));
 
