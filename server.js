@@ -18,10 +18,16 @@ let db = { users: [], logs: [], templates: [], contacts: [], campaigns: [], requ
   { id: 'biz', name: 'الأعمال', price: '90,000 د.ع', days: 30, daily: 10000, sessions: 10 }] };
 for (const f of [DB_FILE, DB_FILE + '.tmp']) { try { db = { ...db, ...JSON.parse(fs.readFileSync(f, 'utf8')) }; break; } catch {} }
 for (const p of db.plans) if (/\$/.test(String(p.price))) p.price = (Math.round(parseFloat(String(p.price).replace(/[^\d.]/g, '')) * 1500 / 500) * 500).toLocaleString('en-US') + ' د.ع';   // ترحيل الأسعار من الدولار إلى الدينار
-let t; const flush = () => { clearTimeout(t); try { const tmp = DB_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(db)); fs.renameSync(tmp, DB_FILE); } catch (e) { console.error('save failed:', e.message); } };
+/* تخزين دائم اختياري في PostgreSQL (DATABASE_URL) — يحفظ كل البيانات كمستند واحد */
+const PG_URL = process.env.DATABASE_URL || '';
+let pool = null;
+if (PG_URL) { const { Pool } = require('pg'); pool = new Pool({ connectionString: PG_URL, ssl: /localhost|127\.0\.0\.1/.test(PG_URL) ? false : { rejectUnauthorized: false }, max: 3 }); pool.on('error', e => console.error('pg:', e.message)); }
+const pgLoad = async () => { if (!pool) return; await pool.query('CREATE TABLE IF NOT EXISTS kv (k text PRIMARY KEY, v jsonb NOT NULL, at timestamptz DEFAULT now())'); const r = await pool.query("SELECT v FROM kv WHERE k='db'"); if (r.rows[0]) db = { ...db, ...r.rows[0].v }; else if (db.users.length) await pgSave(); };
+let pgBusy = Promise.resolve(); const pgSave = () => pgBusy = pgBusy.then(() => pool.query("INSERT INTO kv(k,v,at) VALUES('db',$1::jsonb,now()) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v, at=now()", [JSON.stringify(db)])).catch(e => console.error('pg save failed:', e.message));
+let t; const flush = () => { clearTimeout(t); try { const tmp = DB_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(db)); fs.renameSync(tmp, DB_FILE); } catch (e) { console.error('save failed:', e.message); } if (pool) return pgSave(); };
 const save = () => { clearTimeout(t); t = setTimeout(flush, 300); };
-for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { flush(); process.exit(0); });   // Render يرسل SIGTERM عند كل نشر: نحفظ فوراً
-const PERSISTENT = DIR !== __dirname;
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, async () => { try { await flush(); } catch {} process.exit(0); });   // Render يرسل SIGTERM عند كل نشر: نحفظ فوراً
+const PERSISTENT = DIR !== __dirname || !!pool;
 const id = () => crypto.randomBytes(8).toString('hex');
 const newKey = () => 'wps_' + crypto.randomBytes(20).toString('hex');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -522,6 +528,8 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'المسار غير
 app.use((err, req, res, next) => { console.error(err); res.status(err.status || 500).json({ error: err.status === 400 ? 'بيانات غير صالحة' : 'خطأ في الخادم: ' + err.message }); });
 
 /* ---------- الإقلاع ---------- */
+(async () => {
+if (pool) { try { await pgLoad(); console.log('PostgreSQL ready, users:', db.users.length); } catch (e) { console.error('PostgreSQL load failed — التخزين في القاعدة معطّل لحماية البيانات:', e.message); pool = null; } }
 for (const u of db.users) {   // ترحيل: جلسة قديمة بلا سجل
   if (!u.parent && !db.sessions.some(s => s.uid === u.id) && fs.existsSync(path.join(DIR, 'sessions', u.id))) db.sessions.push({ id: u.id, uid: u.id, name: 'الجلسة الرئيسية', isDefault: true, at: u.at, sent: 0, failed: 0 });
 }
@@ -530,3 +538,4 @@ app.listen(process.env.PORT || 3000, '0.0.0.0', () => {
   db.sessions.forEach(s => fs.existsSync(path.join(DIR, 'sessions', s.id)) && startWA(s.id).catch(e => console.error('startWA:', e.message)));
   db.campaigns.forEach(c => c.status === 'running' && runCampaign(c));
 });
+})();
