@@ -25,6 +25,22 @@ if (PG_URL) { const { Pool } = require('pg'); pool = new Pool({ connectionString
 const pgLoad = async () => { if (!pool) return; await pool.query('CREATE TABLE IF NOT EXISTS kv (k text PRIMARY KEY, v jsonb NOT NULL, at timestamptz DEFAULT now())'); const r = await pool.query("SELECT v FROM kv WHERE k='db'"); if (r.rows[0]) db = { ...db, ...r.rows[0].v }; else if (db.users.length) await pgSave(); };
 let pgBusy = Promise.resolve(); const pgSave = () => pgBusy = pgBusy.then(() => pool.query("INSERT INTO kv(k,v,at) VALUES('db',$1::jsonb,now()) ON CONFLICT (k) DO UPDATE SET v=EXCLUDED.v, at=now()", [JSON.stringify(db)])).catch(e => console.error('pg save failed:', e.message));
 let t; const flush = () => { clearTimeout(t); try { const tmp = DB_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(db)); fs.renameSync(tmp, DB_FILE); } catch (e) { console.error('save failed:', e.message); } if (pool) return pgSave(); };
+/* حفظ جلسات واتساب (QR) داخل PostgreSQL ليبقى الربط بعد كل نشر */
+async function pgAuthState(sid) {
+  const { BufferJSON, initAuthCreds, proto } = await baileys();
+  await pool.query('CREATE TABLE IF NOT EXISTS wa_auth (sid text, k text, v text, PRIMARY KEY (sid, k))');
+  const rd = async k => { const r = await pool.query('SELECT v FROM wa_auth WHERE sid=$1 AND k=$2', [sid, k]); return r.rows[0] ? JSON.parse(r.rows[0].v, BufferJSON.reviver) : null; };
+  const wr = (k, v) => pool.query('INSERT INTO wa_auth(sid,k,v) VALUES($1,$2,$3) ON CONFLICT (sid,k) DO UPDATE SET v=EXCLUDED.v', [sid, k, JSON.stringify(v, BufferJSON.replacer)]);
+  const del = k => pool.query('DELETE FROM wa_auth WHERE sid=$1 AND k=$2', [sid, k]);
+  const creds = (await rd('creds')) || initAuthCreds();
+  return {
+    state: { creds, keys: {
+      get: async (type, ids) => { const out = {}; await Promise.all(ids.map(async i => { let v = await rd(type + '-' + i); if (type === 'app-state-sync-key' && v) v = proto.Message.AppStateSyncKeyData.fromObject(v); out[i] = v; })); return out; },
+      set: async data => { const jobs = []; for (const c in data) for (const i in data[c]) { const v = data[c][i]; jobs.push(v ? wr(c + '-' + i, v) : del(c + '-' + i)); } await Promise.all(jobs); } } },
+    saveCreds: () => wr('creds', creds) };
+}
+const hasAuth = async sid => fs.existsSync(path.join(DIR, 'sessions', sid)) || (!!pool && (await pool.query("SELECT 1 FROM wa_auth WHERE sid=$1 AND k='creds'", [sid]).catch(() => ({ rows: [] }))).rows.length > 0);
+const wipeAuth = async sid => { fs.rmSync(path.join(DIR, 'sessions', sid), { recursive: true, force: true }); if (pool) await pool.query('DELETE FROM wa_auth WHERE sid=$1', [sid]).catch(() => {}); };
 const save = () => { clearTimeout(t); t = setTimeout(flush, 300); };
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, async () => { try { await flush(); } catch {} process.exit(0); });   // Render يرسل SIGTERM عند كل نشر: نحفظ فوراً
 const PERSISTENT = DIR !== __dirname || !!pool;
@@ -118,7 +134,7 @@ async function startWA(sid) {
   try {
     const dir = path.join(DIR, 'sessions', sid);
     const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = await baileys();
-    const { state, saveCreds } = await useMultiFileAuthState(dir);
+    const { state, saveCreds } = pool ? await pgAuthState(sid) : await useMultiFileAuthState(dir);
     let version; try { ({ version } = await fetchLatestBaileysVersion()); } catch {}
     const sock = makeWASocket({ ...(version ? { version } : {}), auth: state, logger: pino({ level: 'silent' }), browser: ['WP Sender', 'Chrome', '1.0'], syncFullHistory: false });
     s.sock = sock; s.status = 'connecting';
@@ -134,7 +150,7 @@ async function startWA(sid) {
         const code = u.lastDisconnect?.error?.output?.statusCode, was = s.status === 'connected';
         s.sock = null; s.status = 'idle'; s.qr = null;
         if (s.stopped) return;
-        if (code === DisconnectReason.loggedOut) { fs.rmSync(dir, { recursive: true, force: true }); s.phone = null; rec.phone = null; save(); notifyDown(rec, 'تم تسجيل الخروج من الجلسة'); }
+        if (code === DisconnectReason.loggedOut) { await wipeAuth(sid); s.phone = null; rec.phone = null; save(); notifyDown(rec, 'تم تسجيل الخروج من الجلسة'); }
         else { if (was) notifyDown(rec, 'انقطع اتصال الجلسة وجارٍ إعادة الاتصال'); setTimeout(() => startWA(sid).catch(() => {}), 3000); }
       }
     });
@@ -311,11 +327,11 @@ app.post('/api/sessions', auth, mainOnly, wrap(async (req, res) => {
 }));
 app.post('/api/sessions/:sid/connect', auth, mainOnly, wrap(async (req, res) => { const r = mySess(req, req.params.sid); startWA(r.id).catch(e => console.error('startWA:', e.message)); await sleep(300); res.json(sessView(r)); }));
 app.post('/api/sessions/:sid/stop', auth, mainOnly, wrap(async (req, res) => { const r = mySess(req, req.params.sid); await stopWA(r.id, false); res.json(sessView(r)); }));
-app.post('/api/sessions/:sid/logout', auth, mainOnly, wrap(async (req, res) => { const r = mySess(req, req.params.sid); await stopWA(r.id, true); fs.rmSync(path.join(DIR, 'sessions', r.id), { recursive: true, force: true }); r.phone = null; save(); res.json(sessView(r)); }));
+app.post('/api/sessions/:sid/logout', auth, mainOnly, wrap(async (req, res) => { const r = mySess(req, req.params.sid); await stopWA(r.id, true); await wipeAuth(r.id); r.phone = null; save(); res.json(sessView(r)); }));
 app.post('/api/sessions/:sid/default', auth, mainOnly, wrap(async (req, res) => { const r = mySess(req, req.params.sid); db.sessions.forEach(s => s.uid === r.uid && (s.isDefault = s.id === r.id)); save(); res.json({ ok: true }); }));
 app.post('/api/sessions/:sid/rename', auth, mainOnly, wrap(async (req, res) => { const r = mySess(req, req.params.sid); r.name = String(req.body.name || '').trim().slice(0, 40) || r.name; save(); res.json({ ok: true }); }));
 app.delete('/api/sessions/:sid', auth, mainOnly, wrap(async (req, res) => {
-  const r = mySess(req, req.params.sid); await stopWA(r.id, true); fs.rmSync(path.join(DIR, 'sessions', r.id), { recursive: true, force: true });
+  const r = mySess(req, req.params.sid); await stopWA(r.id, true); await wipeAuth(r.id);
   db.sessions = db.sessions.filter(s => s.id !== r.id); delete wa[r.id];
   if (r.isDefault) { const n = db.sessions.find(s => s.uid === r.uid); if (n) n.isDefault = true; }
   save(); res.json({ ok: true });
@@ -483,7 +499,7 @@ app.post(A + '/users/:id/ban', auth, adm, (req, res) => { const u = db.users.fin
 app.delete(A + '/users/:id', auth, adm, wrap(async (req, res) => {
   const u = db.users.find(u => u.id === req.params.id);
   if (u && u.role !== 'admin') {
-    for (const s of db.sessions.filter(s => s.uid === u.id)) { await stopWA(s.id, false); fs.rmSync(path.join(DIR, 'sessions', s.id), { recursive: true, force: true }); delete wa[s.id]; }
+    for (const s of db.sessions.filter(s => s.uid === u.id)) { await stopWA(s.id, false); await wipeAuth(s.id); delete wa[s.id]; }
     db.sessions = db.sessions.filter(s => s.uid !== u.id); db.users = db.users.filter(x => x.id !== u.id && x.parent !== u.id);
     ['contacts', 'campaigns', 'autoreplies', 'templates'].forEach(k => db[k] = db[k].filter(x => x.uid !== u.id)); save();
   }
@@ -533,9 +549,9 @@ if (pool) { try { await pgLoad(); console.log('PostgreSQL ready, users:', db.use
 for (const u of db.users) {   // ترحيل: جلسة قديمة بلا سجل
   if (!u.parent && !db.sessions.some(s => s.uid === u.id) && fs.existsSync(path.join(DIR, 'sessions', u.id))) db.sessions.push({ id: u.id, uid: u.id, name: 'الجلسة الرئيسية', isDefault: true, at: u.at, sent: 0, failed: 0 });
 }
-app.listen(process.env.PORT || 3000, '0.0.0.0', () => {
+app.listen(process.env.PORT || 3000, '0.0.0.0', async () => {
   console.log('Server running');
-  db.sessions.forEach(s => fs.existsSync(path.join(DIR, 'sessions', s.id)) && startWA(s.id).catch(e => console.error('startWA:', e.message)));
+  for (const s of db.sessions) if (await hasAuth(s.id)) startWA(s.id).catch(e => console.error('startWA:', e.message));
   db.campaigns.forEach(c => c.status === 'running' && runCampaign(c));
 });
 })();
