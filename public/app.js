@@ -17,7 +17,7 @@ function rowsToItems(rows){rows=rows.filter(r=>r&&r.some(x=>String(x).trim()));i
  if(map.phone<0)map.phone=map.name==0?1:0;
  return rows.map(r=>({phone:String(r[map.phone]||'').replace(/\D/g,''),name:map.name>=0?String(r[map.name]||'').trim():'',group:map.group>=0?String(r[map.group]||'').trim():''})).filter(x=>x.phone.length>7)}
 function pickFile(cb){const i=document.createElement('input');i.type='file';i.accept='.csv,.xlsx,.xls,.txt';i.onchange=A(async()=>{if(i.files[0])cb(rowsToItems(await readRows(i.files[0])))});i.click()}
-function downloadCSV(name,rows){const csv='﻿'+rows.map(r=>r.map(x=>`"${String(x??'').replace(/"/g,'""')}"`).join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
+function downloadCSV(name,rows){const csv='﻿'+rows.map(r=>r.map(x=>`"${String(x??'').replace(/"/g,'""')}"`).join(',')).join('\n');if(window.AndroidApp){AndroidApp.saveFile(name,btoa(unescape(encodeURIComponent(csv))),'text/csv');return}const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
 
 /* --- لوحة التحكم --- */
 V.dash=async()=>{const s=await api('/stats'),b=U.sub,pc=Math.min(100,b.used/b.limit*100||0);

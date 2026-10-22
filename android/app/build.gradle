@@ -1,0 +1,28 @@
+plugins {
+    id 'com.android.application'
+}
+
+// رابط الموقع الذي يفتحه التطبيق (يمكن تغييره عند البناء: gradle assembleDebug -PAPP_URL=https://...)
+def appUrl = project.findProperty('APP_URL') ?: 'https://wep-sender-wahsap-evz6.onrender.com/'
+
+android {
+    namespace 'com.wpsender.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.wpsender.app'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+        buildConfigField 'String', 'APP_URL', "\"${appUrl}\""
+    }
+    buildFeatures { buildConfig true }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildTypes {
+        release { minifyEnabled false }
+    }
+}
